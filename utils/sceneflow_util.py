@@ -6,10 +6,11 @@ import torch.nn.functional as tf
 
 
 def post_processing(l_disp, r_disp):
-    
+
     b, _, h, w = l_disp.shape
     m_disp = 0.5 * (l_disp + r_disp)
-    grid_l = torch.linspace(0.0, 1.0, w).view(1, 1, 1, w).expand(1, 1, h, w).float().requires_grad_(False).cuda()
+    grid_l = torch.linspace(0.0, 1.0, w).view(1, 1, 1, w).expand(
+        1, 1, h, w).float().requires_grad_(False).cuda()
     l_mask = 1.0 - torch.clamp(20 * (grid_l - 0.05), 0, 1)
     r_mask = torch.flip(l_mask, [3])
     return r_mask * l_disp + l_mask * r_disp + (1.0 - l_mask - r_mask) * m_disp
@@ -25,7 +26,8 @@ def flow_horizontal_flip(flow_input):
 
 def disp2depth_kitti(pred_disp, k_value):
 
-    pred_depth = k_value.unsqueeze(1).unsqueeze(1).unsqueeze(1) * 0.54 / (pred_disp + 1e-8)
+    pred_depth = k_value.unsqueeze(1).unsqueeze(
+        1).unsqueeze(1) * 0.54 / (pred_disp + 1e-8)
     pred_depth = torch.clamp(pred_depth, 1e-3, 80)
 
     return pred_depth
@@ -36,7 +38,8 @@ def get_pixelgrid(b, h, w):
     grid_v = torch.linspace(0.0, h - 1, h).view(1, 1, h, 1).expand(b, 1, h, w)
 
     ones = torch.ones_like(grid_h)
-    pixelgrid = torch.cat((grid_h, grid_v, ones), dim=1).float().requires_grad_(False).cuda()
+    pixelgrid = torch.cat((grid_h, grid_v, ones),
+                          dim=1).float().requires_grad_(False).cuda()
 
     return pixelgrid
 
@@ -48,7 +51,8 @@ def pixel2pts(intrinsics, depth):
 
     depth_mat = depth.view(b, 1, -1)
     pixel_mat = pixelgrid.view(b, 3, -1)
-    pts_mat = torch.matmul(torch.inverse(intrinsics.cpu()).cuda(), pixel_mat) * depth_mat
+    pts_mat = torch.matmul(torch.inverse(
+        intrinsics.cpu()).cuda(), pixel_mat) * depth_mat
     pts = pts_mat.view(b, -1, h, w)
 
     return pts, pixelgrid
@@ -72,7 +76,8 @@ def intrinsic_scale(intrinsic, scale_y, scale_x):
     zeros = torch.zeros_like(fx)
     r1 = torch.stack([fx, zeros, cx], dim=1)
     r2 = torch.stack([zeros, fy, cy], dim=1)
-    r3 = torch.tensor([0., 0., 1.], requires_grad=False).cuda().unsqueeze(0).expand(b, -1)
+    r3 = torch.tensor([0., 0., 1.], requires_grad=False).cuda(
+    ).unsqueeze(0).expand(b, -1)
     intrinsic_s = torch.stack([r1, r2, r3], dim=1)
 
     return intrinsic_s
@@ -80,7 +85,8 @@ def intrinsic_scale(intrinsic, scale_y, scale_x):
 
 def pixel2pts_ms(intrinsic, output_disp, rel_scale):
     # pixel2pts
-    intrinsic_dp_s = intrinsic_scale(intrinsic, rel_scale[:,0], rel_scale[:,1])
+    intrinsic_dp_s = intrinsic_scale(
+        intrinsic, rel_scale[:, 0], rel_scale[:, 1])
     output_depth = disp2depth_kitti(output_disp, intrinsic_dp_s[:, 0, 0])
     pts, _ = pixel2pts(intrinsic_dp_s, output_depth)
 
@@ -90,7 +96,8 @@ def pixel2pts_ms(intrinsic, output_disp, rel_scale):
 def pts2pixel_ms(intrinsic, pts, output_sf, disp_size):
 
     # +sceneflow and reprojection
-    sf_s = tf.interpolate(output_sf, disp_size, mode="bilinear", align_corners=True)
+    sf_s = tf.interpolate(output_sf, disp_size,
+                          mode="bilinear", align_corners=True)
     pts_tform = pts + sf_s
     coord = pts2pixel(pts_tform, intrinsic)
 
@@ -128,7 +135,8 @@ def projectSceneFlow2Flow(intrinsic, sceneflow, disp):
     output_depth = disp2depth_kitti(disp, intrinsic[:, 0, 0])
     pts, pixelgrid = pixel2pts(intrinsic, output_depth)
 
-    sf_s = tf.interpolate(sceneflow, [h, w], mode="bilinear", align_corners=True)
+    sf_s = tf.interpolate(
+        sceneflow, [h, w], mode="bilinear", align_corners=True)
     pts_tform = pts + sf_s
     coord = pts2pixel(pts_tform, intrinsic)
     flow = coord - pixelgrid[:, 0:2, :, :]

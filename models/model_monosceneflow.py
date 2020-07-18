@@ -86,7 +86,7 @@ class MonoSceneFlow(nn.Module):
                 x1_warp = self.warping_layer_sf(x1, flow_b, disp_l2, k2, input_dict['aug_size'])
 
             # correlation
-            out_corr_f = Correlation.apply(x1.cuda(), x2_warp, self.corr_params)
+            out_corr_f = Correlation.apply(x1, x2_warp, self.corr_params)
             out_corr_b = Correlation.apply(x2, x1_warp, self.corr_params)
             out_corr_relu_f = self.leakyRELU(out_corr_f)
             out_corr_relu_b = self.leakyRELU(out_corr_b)

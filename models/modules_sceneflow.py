@@ -3,17 +3,24 @@ from __future__ import absolute_import, division, print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as tf
-import logging 
+import logging
 
 from utils.interpolation import interpolate2d_as
 from utils.sceneflow_util import pixel2pts_ms, pts2pixel_ms
 
+
 def get_grid(x):
-    grid_H = torch.linspace(-1.0, 1.0, x.size(3)).view(1, 1, 1, x.size(3)).expand(x.size(0), 1, x.size(2), x.size(3))
-    grid_V = torch.linspace(-1.0, 1.0, x.size(2)).view(1, 1, x.size(2), 1).expand(x.size(0), 1, x.size(2), x.size(3))
+    grid_H = torch.linspace(-1.0, 1.0, x.size(3)).view(1, 1,
+                                                       1, x.size(3)).expand(x.size(0), 1, x.size(2), x.size(3))
+    grid_V = torch.linspace(-1.0, 1.0, x.size(2)).view(1, 1,
+                                                       x.size(2), 1).expand(x.size(0), 1, x.size(2), x.size(3))
     grid = torch.cat([grid_H, grid_V], 1)
     grids_cuda = grid.float().requires_grad_(False).cuda()
     return grids_cuda
+
+
+def apply_rigidity_mask(s, d, rigidity_mask):
+    return s * (1-rigidity_mask) + d * rigidity_mask
 
 
 class WarpingLayer_Flow(nn.Module):
@@ -27,7 +34,8 @@ class WarpingLayer_Flow(nn.Module):
         flo_list.append(flo_w)
         flo_list.append(flo_h)
         flow_for_grid = torch.stack(flo_list).transpose(0, 1)
-        grid = torch.add(get_grid(x), flow_for_grid).transpose(1, 2).transpose(2, 3)        
+        grid = torch.add(get_grid(x), flow_for_grid).transpose(
+            1, 2).transpose(2, 3)
         x_warp = tf.grid_sample(x, grid)
 
         mask = torch.ones(x.size(), requires_grad=False).cuda()
@@ -40,7 +48,7 @@ class WarpingLayer_Flow(nn.Module):
 class WarpingLayer_SF(nn.Module):
     def __init__(self):
         super(WarpingLayer_SF, self).__init__()
- 
+
     def forward(self, x, sceneflow, disp, k1, input_size):
 
         _, _, h_x, w_x = x.size()
@@ -105,15 +113,26 @@ def conv(in_planes, out_planes, kernel_size=3, stride=1, dilation=1, isReLU=True
         )
 
 
-class upconv(nn.Module):
+class upconv_interpolate(nn.Module):
     def __init__(self, num_in_layers, num_out_layers, kernel_size, scale):
-        super(upconv, self).__init__()
+        super(upconv_interpolate, self).__init__()
         self.scale = scale
         self.conv1 = conv(num_in_layers, num_out_layers, kernel_size, 1)
 
     def forward(self, x):
-        x = nn.functional.interpolate(x, scale_factor=self.scale, mode='nearest')
+        x = nn.functional.interpolate(
+            x, scale_factor=self.scale, mode='nearest')
         return self.conv1(x)
+
+
+def upconv_transpose(in_ch, out_ch, kernel_size=4, stride=2, padding=1, relu=True):
+    if relu:
+        return nn.Sequential(
+            nn.ConvTranspose2d(in_ch, out_ch, kernel_size, stride, padding),
+            nn.ReLU(inplace=True)
+        )
+    else:
+        return nn.ConvTranspose2d(in_ch, out_ch, kernel_size, stride, padding)
 
 
 class FeatureExtractor(nn.Module):
@@ -122,7 +141,7 @@ class FeatureExtractor(nn.Module):
         self.num_chs = num_chs
         self.convs = nn.ModuleList()
 
-        for l, (ch_in, ch_out) in enumerate(zip(num_chs[:-1], num_chs[1:])):
+        for _, (ch_in, ch_out) in enumerate(zip(num_chs[:-1], num_chs[1:])):
             layer = nn.Sequential(
                 conv(ch_in, ch_out, stride=2),
                 conv(ch_out, ch_out)
@@ -138,6 +157,37 @@ class FeatureExtractor(nn.Module):
         return feature_pyramid[::-1]
 
 
+class MaskNetDecoder(nn.Module):
+    def __init__(self, in_ch, num_refs=1):
+        super(MaskNetDecoder, self).__init__()
+
+        conv_chs = [256, 256, 128, 64, 32, 16]
+        self.convs = nn.Sequential(
+            conv(in_ch,       in_ch,       kernel_size=7),
+            conv(in_ch,       conv_chs[0], kernel_size=5),
+            conv(conv_chs[0], conv_chs[1]),
+            conv(conv_chs[1], conv_chs[2]),
+            conv(conv_chs[2], conv_chs[3]),
+            conv(conv_chs[3], conv_chs[4]),
+            conv(conv_chs[4], conv_chs[5]),
+        )
+
+        self.pred_mask = conv(conv_chs[-1], num_refs)
+        self.pred_mask_upconv = upconv_transpose(num_refs, num_refs)
+        self.refine_upconv = conv(num_refs, num_refs)
+
+    def forward(self, pyr_feat):
+        out_conv = self.convs(pyr_feat)
+        mask = self.pred_mask(out_conv)
+        pred_mask = nn.functional.sigmoid(mask)
+        mask_upconv = self.pred_mask_upconv(mask)
+        pred_mask_upconv = nn.functional.sigmoid(
+            self.refine_upconv(mask_upconv))
+
+        # (B, num_refs, H, W), (B, num_refs, H*2, W*2)
+        return pred_mask, pred_mask_upconv
+
+
 class MonoSceneFlowDecoder(nn.Module):
     def __init__(self, ch_in):
         super(MonoSceneFlowDecoder, self).__init__()
@@ -149,10 +199,12 @@ class MonoSceneFlowDecoder(nn.Module):
             conv(96, 64),
             conv(64, 32)
         )
+
         self.conv_sf = conv(32, 3, isReLU=False)
         self.conv_d1 = conv(32, 1, isReLU=False)
 
     def forward(self, x):
+
         x_out = self.convs(x)
         sf = self.conv_sf(x_out)
         disp1 = self.conv_d1(x_out)
@@ -174,7 +226,7 @@ class ContextNetwork(nn.Module):
         )
         self.conv_sf = conv(32, 3, isReLU=False)
         self.conv_d1 = nn.Sequential(
-            conv(32, 1, isReLU=False), 
+            conv(32, 1, isReLU=False),
             torch.nn.Sigmoid()
         )
 

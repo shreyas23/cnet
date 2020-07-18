@@ -36,7 +36,7 @@ def main():
     augmentations = None
 
     # load the optimizer
-    opt = None
+    optimizer = None
     
     # run training loop
     for epoch in range(args.epochs):
@@ -51,6 +51,12 @@ def train_one_epoch(model, dataloader, optimizer, augmentations):
   model.train()
 
   for i, data in enumerate(dataloader):
+    loss = torch.scalar_tensor(0) 
+
+    # caclulate gradients and then do Adam step
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
     continue
 
   return
