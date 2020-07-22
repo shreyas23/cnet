@@ -46,11 +46,12 @@ class CNet(nn.Module):
             if l == 0:
                 num_ch_in = self.dim_corr + ch
                 # out_corr_relu, x, x_out (64 s+d), flow_s, flow_d, disp_s, disp_d
+                print(self.dim_corr, ch)
                 num_ch_in_mask = self.dim_corr + ch + 64 + 3 + 3 + 1 + 1
             else:
                 num_ch_in = self.dim_corr + ch + 64 + 3 + 1
                 # out_corr_relu, x, x_out(s & d combined -> 64 ch instead of 32), flow_res, flow_res, disp_s, disp_d + rigidity_mask_upsampled
-                num_ch_in_mask = self.dim_corr + ch + 32 + 3 + 3 + 1 + 1 + 1
+                num_ch_in_mask = self.dim_corr + ch + 64 + 3 + 3 + 1 + 1 + 1
                 self.upconv_layers.append(upconv(64, 64, 3, 2))
 
             # split decoders
@@ -65,7 +66,7 @@ class CNet(nn.Module):
         self.corr_params = {"pad_size": self.search_range, "kernel_size": 1,
                             "max_disp": self.search_range, "stride1": 1, "stride2": 1, "corr_multiply": 1}
 
-        self.context_networks = ContextNetwork(32 + 3 + 1)
+        self.context_networks = ContextNetwork(64 + 3 + 1)
         self.sigmoid = torch.nn.Sigmoid()
 
         initialize_msra(self.modules())
@@ -121,6 +122,7 @@ class CNet(nn.Module):
             out_corr_relu_b = self.leakyRELU(out_corr_b)
 
             # joint estimator
+            # passing in x1_out flow_f instead of x1_out_s and flow_f_s
             if l == 0:
                 x1_out_s, flow_f_s, disp_l1_s = self.static_flow_estimators[l](
                     torch.cat([out_corr_relu_f, x1], dim=1))
@@ -134,13 +136,12 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_b, x2], dim=1))
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                print(out_corr_relu_f.shape, x1.shape, x1_out.shape,
-                      flow_f_s.shape, flow_f_d.shape, disp_l1_s.shape, disp_l1_d.shape)
-                rigidity_mask_fwd, rigidity_mask_fwd_upsampled = self.mask_decoders[l](torch.cat(
-                    [out_corr_relu_f, x1, x1_out, flow_f_s, flow_f_d, disp_l1_s, disp_l1_d], dim=1))
+                import numpy as np
+                rigidity_mask_fwd, rigidity_mask_fwd_upsampled = self.mask_decoders[l](
+                    torch.cat([out_corr_relu_f, x1, x1_out, flow_f_s, flow_f_d, disp_l1_s, disp_l1_d], dim=1))
 
-                rigidity_mask_bwd, rigidity_mask_bwd_upsampled = self.mask_decoders[l](torch.cat(
-                    [out_corr_relu_b, x2, x2_out, flow_b_s, flow_b_d, disp_l2_s, disp_l2_d], dim=1))
+                rigidity_mask_bwd, rigidity_mask_bwd_upsampled = self.mask_decoders[l](
+                    torch.cat([out_corr_relu_b, x2, x2_out, flow_b_s, flow_b_d, disp_l2_s, disp_l2_d], dim=1))
 
                 flow_f = apply_rigidity_mask(
                     flow_f_s, flow_f_d, rigidity_mask_fwd)
@@ -153,18 +154,19 @@ class CNet(nn.Module):
 
             else:
                 x1_out_s, flow_f_s_res, disp_l1_s = self.static_flow_estimators[l](
-                    torch.cat([out_corr_relu_f, x1, x1_out_s, flow_f_s, disp_l1], dim=1))
+                    torch.cat([out_corr_relu_f, x1, x1_out, flow_f, disp_l1], dim=1))
                 x1_out_d, flow_f_d_res, disp_l1_d = self.dynamic_flow_estimators[l](
-                    torch.cat([out_corr_relu_f, x1, x1_out_d, flow_f_d, disp_l1], dim=1))
+                    torch.cat([out_corr_relu_f, x1, x1_out, flow_f, disp_l1], dim=1))
                 x1_out = torch.cat([x1_out_s, x1_out_d], dim=1)
 
                 x2_out_s, flow_b_s_res, disp_l2_s = self.static_flow_estimators[l](
-                    torch.cat([out_corr_relu_b, x2, x2_out_s, flow_b_s, disp_l2], dim=1))
+                    torch.cat([out_corr_relu_b, x2, x2_out, flow_b, disp_l2], dim=1))
                 x2_out_d, flow_b_d_res, disp_l2_d = self.dynamic_flow_estimators[l](
-                    torch.cat([out_corr_relu_b, x2, x2_out_d, flow_b_d, disp_l2], dim=1))
+                    torch.cat([out_corr_relu_b, x2, x2_out, flow_b, disp_l2], dim=1))
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                # TODO: figure out what you want to input to the motion mask estimation
+                print([x[1] for x in [out_corr_relu_f.shape, x1.shape, x1_out.shape, flow_f_s_res.shape,
+                                      flow_f_d_res.shape, disp_l1_s.shape, disp_l1_d.shape, rigidity_mask_fwd_upsampled.shape]])
                 rigidity_mask_fwd, rigidity_mask_fwd_upsampled = self.mask_decoders[l](
                     torch.cat([out_corr_relu_f, x1, x1_out, flow_f_s_res, flow_f_d_res, disp_l1_s, disp_l1_d, rigidity_mask_fwd_upsampled], dim=1))
 
@@ -246,7 +248,7 @@ class CNet(nn.Module):
 
         # Right
         # ss: train val
-        ## ft: train
+        # ft: train
         if self.training or (not self._args.finetuning and not self._args.evaluation):
             input_r1_flip = torch.flip(input_dict['input_r1_aug'], [3])
             input_r2_flip = torch.flip(input_dict['input_r2_aug'], [3])
@@ -269,7 +271,7 @@ class CNet(nn.Module):
             output_dict['output_dict_r'] = output_dict_r
 
         # Post Processing
-        ## ss:           eval
+        # ss:           eval
         # ft: train val eval
         if self._args.evaluation or self._args.finetuning:
 

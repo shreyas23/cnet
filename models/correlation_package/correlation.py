@@ -3,6 +3,7 @@ from torch.nn.modules.module import Module
 from torch.autograd import Function
 import correlation_cuda
 
+
 class Correlation(Function):
 
     @staticmethod
@@ -22,7 +23,7 @@ class Correlation(Function):
             output = input1.new()
 
             correlation_cuda.forward(input1, input2, rbot1, rbot2, output,
-                ctx.pad_size, ctx.kernel_size, ctx.max_disp, ctx.stride1, ctx.stride2, ctx.corr_multiply)
+                                     ctx.pad_size, ctx.kernel_size, ctx.max_disp, ctx.stride1, ctx.stride2, ctx.corr_multiply)
 
         return output
 
@@ -38,6 +39,6 @@ class Correlation(Function):
             grad_input2 = input2.new()
 
             correlation_cuda.backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2,
-                ctx.pad_size, ctx.kernel_size, ctx.max_disp, ctx.stride1, ctx.stride2, ctx.corr_multiply)
+                                      ctx.pad_size, ctx.kernel_size, ctx.max_disp, ctx.stride1, ctx.stride2, ctx.corr_multiply)
 
         return grad_input1, grad_input2, None
