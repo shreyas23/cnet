@@ -157,19 +157,39 @@ class FeatureExtractor(nn.Module):
         return feature_pyramid[::-1]
 
 
+class CameraMotionDecoder(nn.Module):
+    def __init__(self, in_ch, num_refs):
+        super(CameraMotionDecoder, self).__init__()
+
+        conv_chs = [64, 128, 128, 256, 128, 6*num_refs]
+        self.convs = nn.Sequential(
+            conv(in_ch, in_ch, kernel_size=7),
+            conv(in_ch, conv_chs[0], kernel_size=5),
+            conv(conv_chs[0], conv_chs[1], stride=2),
+            conv(conv_chs[1], conv_chs[2], stride=2),
+            conv(conv_chs[2], conv_chs[3], stride=2),
+            conv(conv_chs[3], conv_chs[4], stride=2),
+            conv(conv_chs[4], conv_chs[5], stride=1),
+        )
+    def forward(self, pyr_feat):
+        motion_pred = self.convs(pyr_feat)
+        motion_pred = motion_pred.mean(3).mean(2) * 0.01
+        return motion_pred.squeeze()
+
+
 class MaskNetDecoder(nn.Module):
     def __init__(self, in_ch, num_refs=1):
         super(MaskNetDecoder, self).__init__()
 
         conv_chs = [256, 256, 128, 64, 32, 16]
         self.convs = nn.Sequential(
-            conv(in_ch,       in_ch,       kernel_size=7),
-            conv(in_ch,       conv_chs[0], kernel_size=5),
-            conv(conv_chs[0], conv_chs[1]),
-            conv(conv_chs[1], conv_chs[2]),
-            conv(conv_chs[2], conv_chs[3]),
-            conv(conv_chs[3], conv_chs[4]),
-            conv(conv_chs[4], conv_chs[5]),
+            conv(in_ch,       in_ch,       kernel_size=7, stride=2),
+            conv(in_ch,       conv_chs[0], kernel_size=5, stride=2),
+            conv(conv_chs[0], conv_chs[1], stride=2),
+            conv(conv_chs[1], conv_chs[2], stride=2),
+            conv(conv_chs[2], conv_chs[3], stride=2),
+            conv(conv_chs[3], conv_chs[4], stride=2),
+            conv(conv_chs[4], conv_chs[5], stride=2),
         )
 
         self.pred_mask = conv(conv_chs[-1], num_refs)

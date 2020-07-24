@@ -14,14 +14,55 @@ from models.modules_sceneflow import WarpingLayer_Flow
 #            Consistency Losses               #
 ###############################################
 
+"""
+Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
+"""
+def optical_flow_loss(ref_img, flow_fwd, flow_bwd, rigidity_mask, intrinsics):
+    """
+        1. Project scene flow to optical flow
+        2. Warp reference image through optical flow
+        3. Photometric loss
+    """
+    return loss
 
-def motion_consistency_loss():
-    return None
+"""
+Consistency loss between motion mask and projected optical flow
+In "static" regions of the image, the motion mask must be 0
+In "dynamic" regions of the image, the motion mask must be 1
+"""
+def motion_mask_consistency_loss(ref_img, flow_s, flow_d, rigidity_mask, intrinsics):
+    return loss
+
+"""
+The derived motion mask from dynamic (scene flow - static scene) flow should be consistent with the motion mask we learn
+"""
+def derived_motion_consistency_loss(ref_img, tgt_img, ):
+    return loss
+
+"""
+Measuring consistency between the egomotion/disparity of left images vs right images
+"""
+def stereo_consistency_loss(l1, l2, r1, r2):
+    return loss
+
+### Other losses
+
+"""
+Static scene reconstruction loss through camera pose and disparity
+"""
+def static_scene_reconstruction_loss(ref_img, flow_s, rigidity_mask, intrinsics):
+  return loss
+
+def motion_mask_loss(rigidity_mask):
+    ones = torch.ones_like(rigidity_mask)
+    loss = nn.functional.binary_cross_entropy(rigidity_mask, ones)
+    return 0
 
 
 ###############################################
 # Basic Module
 ###############################################
+
 
 def _elementwise_epe(input_flow, target_flow):
     residual = target_flow - input_flow

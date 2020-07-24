@@ -208,18 +208,6 @@ class Augmentation_ScaleCrop(nn.Module):
 
         # Coord of the resized image
         grid_ww, grid_hh = self._meshgrid(resize[1], resize[0])
-
-        # DEBUG
-        import pynvml
-        from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
-        nvmlInit()
-        h = nvmlDeviceGetHandleByIndex(0)
-        info = nvmlDeviceGetMemoryInfo(h)
-        print('agumentation')
-        print(f'total    : {info.total / (1024**3)} Gb')
-        print(f'free     : {info.free / (1024**3)} Gb')
-        print(f'used     : {info.used / (1024**3)} Gb')
-
         grid_ww = (grid_ww - (resize[1] - 1.0) / 2.0).unsqueeze(0).cuda()
         grid_hh = (grid_hh - (resize[0] - 1.0) / 2.0).unsqueeze(0).cuda()
         grid_pts = torch.cat([grid_ww, grid_hh, torch.ones_like(

@@ -76,18 +76,6 @@ def intrinsic_scale(intrinsic, scale_y, scale_x):
     zeros = torch.zeros_like(fx)
     r1 = torch.stack([fx, zeros, cx], dim=1)
     r2 = torch.stack([zeros, fy, cy], dim=1)
-
-    # DEBUG
-    import pynvml
-    from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
-    nvmlInit()
-    h = nvmlDeviceGetHandleByIndex(0)
-    info = nvmlDeviceGetMemoryInfo(h)
-    print("sceneflow util")
-    print(f'total    : {info.total / (1024**3)} Gb')
-    print(f'free     : {info.free / (1024**3)} Gb')
-    print(f'used     : {info.used / (1024**3)} Gb')
-
     r3 = torch.tensor([0., 0., 1.], requires_grad=False).cuda(
     ).unsqueeze(0).expand(b, -1)
     intrinsic_s = torch.stack([r1, r2, r3], dim=1)

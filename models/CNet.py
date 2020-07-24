@@ -46,7 +46,6 @@ class CNet(nn.Module):
             if l == 0:
                 num_ch_in = self.dim_corr + ch
                 # out_corr_relu, x, x_out (64 s+d), flow_s, flow_d, disp_s, disp_d
-                print(self.dim_corr, ch)
                 num_ch_in_mask = self.dim_corr + ch + 64 + 3 + 3 + 1 + 1
             else:
                 num_ch_in = self.dim_corr + ch + 64 + 3 + 1
@@ -71,7 +70,7 @@ class CNet(nn.Module):
 
         initialize_msra(self.modules())
 
-    def run_pwc(self, input_dict, x1_raw, x2_raw, k1, k2, mono=False):
+    def run_pwc(self, input_dict, x1_raw, x2_raw, k1, k2):
 
         output_dict = {}
 
@@ -165,8 +164,9 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_b, x2, x2_out, flow_b, disp_l2], dim=1))
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                print([x[1] for x in [out_corr_relu_f.shape, x1.shape, x1_out.shape, flow_f_s_res.shape,
-                                      flow_f_d_res.shape, disp_l1_s.shape, disp_l1_d.shape, rigidity_mask_fwd_upsampled.shape]])
+                if self._args['debug']:
+                    print([x[1] for x in [out_corr_relu_f.shape, x1.shape, x1_out.shape, flow_f_s_res.shape,
+                                          flow_f_d_res.shape, disp_l1_s.shape, disp_l1_d.shape, rigidity_mask_fwd_upsampled.shape]])
                 rigidity_mask_fwd, rigidity_mask_fwd_upsampled = self.mask_decoders[l](
                     torch.cat([out_corr_relu_f, x1, x1_out, flow_f_s_res, flow_f_d_res, disp_l1_s, disp_l1_d, rigidity_mask_fwd_upsampled], dim=1))
 
@@ -249,7 +249,7 @@ class CNet(nn.Module):
         # Right
         # ss: train val
         # ft: train
-        if self.training or (not self._args.finetuning and not self._args.evaluation):
+        if self.training or (not self._args['finetuning'] and not self._args['evaluation']):
             input_r1_flip = torch.flip(input_dict['input_r1_aug'], [3])
             input_r2_flip = torch.flip(input_dict['input_r2_aug'], [3])
             k_r1_flip = input_dict["input_k_r1_flip_aug"]
@@ -273,7 +273,7 @@ class CNet(nn.Module):
         # Post Processing
         # ss:           eval
         # ft: train val eval
-        if self._args.evaluation or self._args.finetuning:
+        if self._args['evaluation'] or self._args['finetuning']:
 
             input_l1_flip = torch.flip(input_dict['input_l1_aug'], [3])
             input_l2_flip = torch.flip(input_dict['input_l2_aug'], [3])
