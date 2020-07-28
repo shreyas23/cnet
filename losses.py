@@ -27,22 +27,23 @@ def optical_flow_loss(ref_img, flow_fwd, flow_bwd, rigidity_mask, intrinsics):
 
 """
 Consistency loss between motion mask and projected optical flow
+Subtract camera motion from both static and dynamic motion vectors
 In "static" regions of the image, the motion mask must be 0
 In "dynamic" regions of the image, the motion mask must be 1
 """
-def motion_mask_consistency_loss(ref_img, flow_s, flow_d, rigidity_mask, intrinsics):
+def motion_mask_consistency_loss(ref_img, flow_s, flow_d, rigidity_mask, cam_motion, intrinsics):
     return loss
 
 """
-The derived motion mask from dynamic (scene flow - static scene) flow should be consistent with the motion mask we learn
+The derived motion mask from (dynamic - static) flow should be consistent with the motion mask we learn
 """
 def derived_motion_consistency_loss(ref_img, tgt_img, ):
     return loss
 
 """
-Measuring consistency between the egomotion/disparity of left images vs right images
+Stereo consistency between the egomotion/disparity of left images vs right images
 """
-def stereo_consistency_loss(l1, l2, r1, r2):
+def stereo_consistency_loss(l1, l2, r1, r2, flow, ):
     return loss
 
 ### Other losses
@@ -50,9 +51,14 @@ def stereo_consistency_loss(l1, l2, r1, r2):
 """
 Static scene reconstruction loss through camera pose and disparity
 """
-def static_scene_reconstruction_loss(ref_img, flow_s, rigidity_mask, intrinsics):
+def static_scene_reconstruction_loss(ref_img, camera_motion, rigidity_mask, intrinsics):
   return loss
 
+
+"""
+Binary cross entropy loss for motion mask 
+TODO: Rethink this because it definitely should not be the case that 
+"""
 def motion_mask_loss(rigidity_mask):
     ones = torch.ones_like(rigidity_mask)
     loss = nn.functional.binary_cross_entropy(rigidity_mask, ones)

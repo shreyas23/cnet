@@ -19,8 +19,12 @@ def get_grid(x):
     return grids_cuda
 
 
-def apply_rigidity_mask(s, d, rigidity_mask):
-    return s * (1-rigidity_mask) + d * rigidity_mask
+def apply_rigidity_mask(static, dynamic, rigidity_mask, apply_conv=False):
+    _, ch, h, w = static.shape
+    merged = static * (1-rigidity_mask) + dynamic * rigidity_mask
+    if apply_conv:
+        merged = conv(ch, ch)
+    return merged
 
 
 class WarpingLayer_Flow(nn.Module):
