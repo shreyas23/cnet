@@ -10,7 +10,7 @@ from .correlation_package.correlation import Correlation
 from .modules_sceneflow import get_grid, WarpingLayer_SF
 from .modules_sceneflow import initialize_msra, upsample_outputs_as
 from .modules_sceneflow import upconv_interpolate as upconv
-from .modules_sceneflow import FeatureExtractor, MonoSceneFlowDecoder, MaskNetDecoder, ContextNetwork
+from .modules_sceneflow import FeatureExtractor, MonoSceneFlowDecoder, MaskNetDecoder, ContextNetwork, CameraMotionDecoder
 from .modules_sceneflow import apply_rigidity_mask
 
 from utils.interpolation import interpolate2d_as
@@ -26,6 +26,7 @@ class CNet(nn.Module):
         self.search_range = 4
         self.output_level = 4
         self.num_levels = 7
+        self.num_refs = 1
 
         self.leakyRELU = nn.LeakyReLU(0.1, inplace=True)
 
@@ -35,6 +36,7 @@ class CNet(nn.Module):
         self.static_flow_estimators = nn.ModuleList()
         self.dynamic_flow_estimators = nn.ModuleList()
         self.mask_decoders = nn.ModuleList()
+        self.cam_motion_decoders = nn.ModuleList()
         self.upconv_layers = nn.ModuleList()
 
         self.dim_corr = (self.search_range * 2 + 1) ** 2
@@ -56,16 +58,19 @@ class CNet(nn.Module):
             # split decoders
             static_layer_sf = MonoSceneFlowDecoder(num_ch_in)
             dynamic_layer_sf = MonoSceneFlowDecoder(num_ch_in)
+
             mask_decoder = MaskNetDecoder(num_ch_in_mask)
+            cam_motion_decoder = CameraMotionDecoder(self.dim_corr + ch + 32)
 
             self.static_flow_estimators.append(static_layer_sf)
             self.dynamic_flow_estimators.append(dynamic_layer_sf)
             self.mask_decoders.append(mask_decoder)
+            self.cam_motion_decoders.append(cam_motion_decoder)
 
         self.corr_params = {"pad_size": self.search_range, "kernel_size": 1,
                             "max_disp": self.search_range, "stride1": 1, "stride2": 1, "corr_multiply": 1}
 
-        self.context_networks = ContextNetwork(64 + 3 + 1)
+        self.context_networks = ContextNetwork(64 + 3 + 1 + 6 + 1)
         self.sigmoid = torch.nn.Sigmoid()
 
         initialize_msra(self.modules())
@@ -86,6 +91,12 @@ class CNet(nn.Module):
         sceneflows_b = []
         sceneflows_b_s = []
         sceneflows_b_d = []
+
+        rigidity_masks_f = []
+        rigidity_masks_b = []
+
+        cam_motions_f = []
+        cam_motions_b = []
 
         disps_1 = []
         disps_1_s = []
@@ -127,20 +138,30 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_f, x1], dim=1))
                 x1_out_d, flow_f_d, disp_l1_d = self.dynamic_flow_estimators[l](
                     torch.cat([out_corr_relu_f, x1], dim=1))
+
+                cam_feats_f, cam_motion_f = self.cam_motion_decoders[l](
+                    torch.cat([out_corr_relu_f, x1, x1_out_s], dim=1))
+
                 x1_out = torch.cat([x1_out_s, x1_out_d], dim=1)
 
                 x2_out_s, flow_b_s, disp_l2_s = self.static_flow_estimators[l](
                     torch.cat([out_corr_relu_b, x2], dim=1))
                 x2_out_d, flow_b_d, disp_l2_d = self.dynamic_flow_estimators[l](
                     torch.cat([out_corr_relu_b, x2], dim=1))
+
+                cam_feats_b, cam_motion_b = self.cam_motion_decoders[l](
+                    torch.cat([out_corr_relu_b, x2, x2_out_s], dim=1))
+
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                import numpy as np
                 rigidity_mask_fwd, rigidity_mask_fwd_upsampled = self.mask_decoders[l](
                     torch.cat([out_corr_relu_f, x1, x1_out, flow_f_s, flow_f_d, disp_l1_s, disp_l1_d], dim=1))
 
                 rigidity_mask_bwd, rigidity_mask_bwd_upsampled = self.mask_decoders[l](
                     torch.cat([out_corr_relu_b, x2, x2_out, flow_b_s, flow_b_d, disp_l2_s, disp_l2_d], dim=1))
+
+                if self._args['debug']:
+                    print(f"pyramid level: {l}", rigidity_mask_fwd_upsampled.shape, rigidity_mask_bwd_upsampled.shape)
 
                 flow_f = apply_rigidity_mask(
                     flow_f_s, flow_f_d, rigidity_mask_fwd)
@@ -156,17 +177,25 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_f, x1, x1_out, flow_f, disp_l1], dim=1))
                 x1_out_d, flow_f_d_res, disp_l1_d = self.dynamic_flow_estimators[l](
                     torch.cat([out_corr_relu_f, x1, x1_out, flow_f, disp_l1], dim=1))
+
+                cam_feats_f, cam_motion_f = self.cam_motion_decoders[l](
+                    torch.cat([out_corr_relu_f, x1, x1_out_s], dim=1))
+                
                 x1_out = torch.cat([x1_out_s, x1_out_d], dim=1)
 
                 x2_out_s, flow_b_s_res, disp_l2_s = self.static_flow_estimators[l](
                     torch.cat([out_corr_relu_b, x2, x2_out, flow_b, disp_l2], dim=1))
                 x2_out_d, flow_b_d_res, disp_l2_d = self.dynamic_flow_estimators[l](
                     torch.cat([out_corr_relu_b, x2, x2_out, flow_b, disp_l2], dim=1))
+
+                cam_feats_b, cam_motion_b = self.cam_motion_decoders[l](
+                    torch.cat([out_corr_relu_b, x2, x2_out_s], dim=1))
+
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
                 if self._args['debug']:
-                    print([x[1] for x in [out_corr_relu_f.shape, x1.shape, x1_out.shape, flow_f_s_res.shape,
-                                          flow_f_d_res.shape, disp_l1_s.shape, disp_l1_d.shape, rigidity_mask_fwd_upsampled.shape]])
+                    print(f"pyramid level: {l}", [d.shape for d in [out_corr_relu_f, x1, x1_out, flow_f_s_res, flow_f_d_res, disp_l1_s, disp_l1_d, rigidity_mask_fwd_upsampled]])
+
                 rigidity_mask_fwd, rigidity_mask_fwd_upsampled = self.mask_decoders[l](
                     torch.cat([out_corr_relu_f, x1, x1_out, flow_f_s_res, flow_f_d_res, disp_l1_s, disp_l1_d, rigidity_mask_fwd_upsampled], dim=1))
 
@@ -201,22 +230,50 @@ class CNet(nn.Module):
                 disps_1.append(disp_l1)
                 disps_1_s.append(disp_l1_s)
                 disps_1_d.append(disp_l1_d)
+
                 disps_2.append(disp_l2)
                 disps_2_s.append(disp_l2_s)
                 disps_2_d.append(disp_l2_d)
 
+                rigidity_masks_f.append(rigidity_mask_fwd)
+                rigidity_masks_b.append(rigidity_mask_bwd)
+
+                cam_motions_f.append(cam_motion_f)
+                cam_motions_b.append(cam_motion_b)
+
             else:
                 # TODO: could feed in decomposed flow here instead
+                if self._args['debug']:
+                    print([d.shape for d in [x1_out, flow_f, disp_l1, cam_feats_f, rigidity_mask_fwd]])
                 flow_res_f, disp_l1 = self.context_networks(
-                    torch.cat([x1_out, flow_f, disp_l1], dim=1))
+                    torch.cat([x1_out, flow_f, disp_l1, cam_feats_f, rigidity_mask_fwd], dim=1))
                 flow_res_b, disp_l2 = self.context_networks(
-                    torch.cat([x2_out, flow_b, disp_l2], dim=1))
+                    torch.cat([x2_out, flow_b, disp_l2, cam_feats_b, rigidity_mask_bwd], dim=1))
+
                 flow_f = flow_f + flow_res_f
                 flow_b = flow_b + flow_res_b
+
                 sceneflows_f.append(flow_f)
+                sceneflows_f_s.append(flow_f_s)
+                sceneflows_f_d.append(flow_f_d)
+
                 sceneflows_b.append(flow_b)
+                sceneflows_b_s.append(flow_b_s)
+                sceneflows_b_d.append(flow_b_d)
+
                 disps_1.append(disp_l1)
+                disps_1_s.append(disp_l1_s)
+                disps_1_d.append(disp_l1_d)
+
                 disps_2.append(disp_l2)
+                disps_2_s.append(disp_l2_s)
+                disps_2_d.append(disp_l2_d)
+
+                rigidity_masks_f.append(rigidity_mask_fwd)
+                rigidity_masks_b.append(rigidity_mask_bwd)
+
+                cam_motions_f.append(cam_motion_f)
+                cam_motions_b.append(cam_motion_b)
                 break
 
         x1_rev = x1_pyramid[::-1]
@@ -235,6 +292,12 @@ class CNet(nn.Module):
 
         output_dict['disp_l1'] = upsample_outputs_as(disps_1[::-1], x1_rev)
         output_dict['disp_l2'] = upsample_outputs_as(disps_2[::-1], x1_rev)
+
+        output_dict['rigidity_f'] = upsample_outputs_as(rigidity_masks_f[::-1], x1_rev)
+        output_dict['rigidity_b'] = upsample_outputs_as(rigidity_masks_b[::-1], x1_rev)
+
+        output_dict['cam_motions_f'] = cam_motions_f[::-1]
+        output_dict['cam_motions_b'] = cam_motions_b[::-1]
 
         return output_dict
 
