@@ -10,34 +10,53 @@ from utils.sceneflow_util import pixel2pts_ms, pts2pixel_ms, reconstructImg, rec
 from utils.monodepth_eval import compute_errors, compute_d1_all
 from models.modules_sceneflow import WarpingLayer_Flow
 
+from utils.inverse_warp import flow_warp, pose2flow
+from ssim import ssim
+
 ###############################################
 #            Consistency Losses               #
 ###############################################
 
-"""
-Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
-"""
-def optical_flow_loss(ref_img, flow_fwd, flow_bwd, rigidity_mask, intrinsics):
-    """
-        1. Project scene flow to optical flow
-        2. Warp reference image through optical flow
-        3. Photometric loss
-    """
-    return loss
+def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics, occlusion_mask=None):
+    """ Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
 
-"""
-Consistency loss between motion mask and projected optical flow
-Subtract camera motion from both static and dynamic motion vectors
-In "static" regions of the image, the motion mask must be 0
-In "dynamic" regions of the image, the motion mask must be 1
-"""
-def motion_mask_consistency_loss(ref_img, flow_s, flow_d, rigidity_mask, cam_motion, intrinsics):
-    return loss
+    All input args. are at one scale
 
-"""
-The derived motion mask from (dynamic - static) flow should be consistent with the motion mask we learn
-"""
-def derived_motion_consistency_loss(ref_img, tgt_img, ):
+    1. Project scene flow to optical flow
+    2. Warp reference image through optical flow
+    3. Photometric loss
+    """
+
+    optical_flow = projectSceneFlow2Flow(intrinsics, scene_flow, disparity)
+
+    warped_img = flow_warp(ref_img, optical_flow)
+    valid_pixels = 1 - (warped_img == 0).type_as(warped_img) # XXX: this seems fishy to me, what if there are pure black pixels
+    diff = (warped_img - ref_img) * valid_pixels
+    ssim_loss = _SSIM(ref_img, warped_img)
+
+    # if occlusion_mask:
+
+    photometric_loss = 0
+    ssim_loss = 0
+
+    return photometric_loss, ssim_loss
+
+def motion_mask_consistency_loss(target_dict, flow_s, flow_d, rigidity_mask, cam_motion, disparity, intrinsics):
+    """ Consistency loss between motion mask and projected optical flow at one scale
+
+    In "static" regions of the image, the motion mask must be 0
+    In "dynamic" regions of the image, the motion mask must be 1
+    """
+
+    depth = _disp2depth_kitti_K(disparity, target_dict['input_k_l1'])
+    cam_flow = pose2flow(depth, cam_motion, intrinsics, torch.inverse(intrinsics))
+    flow_s -= cam_flow # we expect this to gravitate towards 0 
+    flow_d -= cam_flow # we expect this to be the rigidity mask
+    loss_static = torch.norm(flow_s * rigidity_mask, p=2)
+    loss_dynamic = torch.norm(flow_d * (1-rigidity_mask), p=2)
+
+    loss = loss_static + loss_dynamic
+
     return loss
 
 """
@@ -52,7 +71,12 @@ def stereo_consistency_loss(l1, l2, r1, r2, flow, ):
 Static scene reconstruction loss through camera pose and disparity
 """
 def static_scene_reconstruction_loss(ref_img, camera_motion, rigidity_mask, intrinsics):
-  return loss
+    loss = 0
+    return loss
+
+def dynamic_scene_reconstruction_loss(ref_img, flow_d, rigidity_mask, intrinsics):
+    loss = 0
+    return loss
 
 
 """
