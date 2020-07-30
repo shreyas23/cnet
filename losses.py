@@ -42,7 +42,7 @@ def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics,
     return photometric_loss, ssim_loss
 
 def motion_mask_consistency_loss(target_dict, 
-                                 flow_f_s, flow_f_d,
+                                 flow_f_s, flow_f_d, flow_b_s, flow_b_d
                                  rigidity_mask_f_l, rigidity_mask_b_l, rigidity_mask_f_r, rigidity_mask_b_r, 
                                  cam_motion_f_l, cam_motion_b_l, cam_motion_f_r, cam_motion_b_r, 
                                  disparity,
@@ -58,19 +58,25 @@ def motion_mask_consistency_loss(target_dict,
 
     depth_l1 = _disp2depth_kitti_K(disparity, intrinsics_l)
     depth_r1 = _disp2depth_kitti_K(disparity, intrinsics_r)
+
     cam_flow_f_l = pose2flow(depth_l1, cam_motion_f_l, intrinsics_l, torch.inverse(intrinsics_l))
     cam_flow_f_r = pose2flow(depth_r1, cam_motion_f_r, intrinsics_r, torch.inverse(intrinsics_r))
-    flow_f_s = (flow_f_s - cam_flow_f_l) * rigidity_mask_f # we expect this to be 0 
-    flow_f_s = (flow_f_s - cam_flow_f_r) * rigidity_mask_f # we expect this to be 0 
-    flow_f_d = (flow_f_d - cam_flow_f_l) * rigidity_mask_f # we expect this to be the rigidity mask
-    flow_f_d = (flow_f_d - cam_flow_f_r) * rigidity_mask_f # we expect this to be the rigidity mask
+
+    cam_diff_s_l = (flow_f_s - cam_flow_f_l) * rigidity_mask_f_l # we expect this to be 0 
+    cam_diff_s_r = (flow_f_s - cam_flow_f_r) * rigidity_mask_f_l # we expect this to be 0 
+
+    cam_diff_d_l = (flow_f_d - cam_flow_f_l) * rigidity_mask_f_r # we expect this to be the rigidity mask
+    cam_diff_d_r = (flow_f_d - cam_flow_f_r) * rigidity_mask_f_r # we expect this to be the rigidity mask
 
     if not use_occluded:
         occ_map_b_s = _adaptive_disocc_detection(flow_f_s).detach() * disp_occ_l2
         occ_map_f_s = _adaptive_disocc_detection(flow_b_s).detach() * disp_occ_l1
-
         occ_map_b_d = _adaptive_disocc_detection(flow_f_d).detach() * disp_occ_l2
         occ_map_f_d = _adaptive_disocc_detection(flow_b_d).detach() * disp_occ_l1
+        flow_f_s = flow_f_s * occ_map_f_s
+        flow_f_d = flow_f_s * occ_map_f_d
+        flow_f_s = flow_b_s * occ_map_b_s
+        flow_f_s = flow_b_d * occ_map_b_d
 
     loss_static = torch.norm(flow_s * rigidity_mask, p=2)
     loss_dynamic = torch.norm(flow_d * (1-rigidity_mask), p=2)
