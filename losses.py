@@ -41,17 +41,37 @@ def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics,
 
     return photometric_loss, ssim_loss
 
-def motion_mask_consistency_loss(target_dict, flow_s, flow_d, rigidity_mask, cam_motion, disparity, intrinsics):
+def motion_mask_consistency_loss(target_dict, 
+                                 flow_f_s, flow_f_d,
+                                 rigidity_mask_f_l, rigidity_mask_b_l, rigidity_mask_f_r, rigidity_mask_b_r, 
+                                 cam_motion_f_l, cam_motion_b_l, cam_motion_f_r, cam_motion_b_r, 
+                                 disparity,
+                                 use_occluded=False):
     """ Consistency loss between motion mask and projected optical flow at one scale
 
     In "static" regions of the image, the motion mask must be 0
     In "dynamic" regions of the image, the motion mask must be 1
     """
 
-    depth = _disp2depth_kitti_K(disparity, target_dict['input_k_l1'])
-    cam_flow = pose2flow(depth, cam_motion, intrinsics, torch.inverse(intrinsics))
-    flow_s -= cam_flow # we expect this to gravitate towards 0 
-    flow_d -= cam_flow # we expect this to be the rigidity mask
+    intrinsics_l = target_dict['input_k_l1']
+    intrinsics_r = target_dict['input_k_r1']
+
+    depth_l1 = _disp2depth_kitti_K(disparity, intrinsics_l)
+    depth_r1 = _disp2depth_kitti_K(disparity, intrinsics_r)
+    cam_flow_f_l = pose2flow(depth_l1, cam_motion_f_l, intrinsics_l, torch.inverse(intrinsics_l))
+    cam_flow_f_r = pose2flow(depth_r1, cam_motion_f_r, intrinsics_r, torch.inverse(intrinsics_r))
+    flow_f_s = (flow_f_s - cam_flow_f_l) * rigidity_mask_f # we expect this to be 0 
+    flow_f_s = (flow_f_s - cam_flow_f_r) * rigidity_mask_f # we expect this to be 0 
+    flow_f_d = (flow_f_d - cam_flow_f_l) * rigidity_mask_f # we expect this to be the rigidity mask
+    flow_f_d = (flow_f_d - cam_flow_f_r) * rigidity_mask_f # we expect this to be the rigidity mask
+
+    if not use_occluded:
+        occ_map_b_s = _adaptive_disocc_detection(flow_f_s).detach() * disp_occ_l2
+        occ_map_f_s = _adaptive_disocc_detection(flow_b_s).detach() * disp_occ_l1
+
+        occ_map_b_d = _adaptive_disocc_detection(flow_f_d).detach() * disp_occ_l2
+        occ_map_f_d = _adaptive_disocc_detection(flow_b_d).detach() * disp_occ_l1
+
     loss_static = torch.norm(flow_s * rigidity_mask, p=2)
     loss_dynamic = torch.norm(flow_d * (1-rigidity_mask), p=2)
 
@@ -59,20 +79,38 @@ def motion_mask_consistency_loss(target_dict, flow_s, flow_d, rigidity_mask, cam
 
     return loss
 
-"""
-Stereo consistency between the egomotion/disparity of left images vs right images
-"""
+def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, disparity):
+    intrinsics_l = target_dict['input_k_l1']
+    intrinsics_r = target_dict['input_k_r1']
+
+    depth_l = _disp2depth_kitti_K(disparity, intrinsics_l)
+    cam_flow_l = pose2flow(depth_l, cam_motion_l, intrinsics_l, torch.inverse(intrinsics_l))
+
+    depth_r = _disp2depth_kitti_K(disparity, intrinsics_r)
+    cam_flow_r = pose2flow(depth_r, cam_motion_r, intrinsics_r, torch.inverse(intrinsics_r))
+
+    loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
+
+    return loss
+
+
 def stereo_consistency_loss(l1, l2, r1, r2, flow, ):
+    """ Stereo consistency between the egomotion/disparity of left images vs right images
+    Disparity loss between 
+    """
     return loss
 
 ### Other losses
 
-"""
-Static scene reconstruction loss through camera pose and disparity
-"""
 def static_scene_reconstruction_loss(ref_img, camera_motion, rigidity_mask, intrinsics):
+    """ Static scene reconstruction loss through camera pose and disparity
+    Args:
+
+    """
+
     loss = 0
     return loss
+
 
 def dynamic_scene_reconstruction_loss(ref_img, flow_d, rigidity_mask, intrinsics):
     loss = 0
