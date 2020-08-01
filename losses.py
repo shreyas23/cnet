@@ -10,12 +10,19 @@ from utils.sceneflow_util import pixel2pts_ms, pts2pixel_ms, reconstructImg, rec
 from utils.monodepth_eval import compute_errors, compute_d1_all
 from models.modules_sceneflow import WarpingLayer_Flow
 
-from utils.inverse_warp import flow_warp, pose2flow
+from utils.inverse_warp import flow_warp, pose2flow, pose_vec2mat
 from ssim import ssim
 
 ###############################################
 #            Consistency Losses               #
 ###############################################
+
+# TODO: FIX SSIM SHIT
+def _reconstruction_error(tgt_img, ref_img_warped, ssim_w=None):
+    diff = (_elementwise_l1(tgt_img, ref_img_warped) * (1.0 - ssim_w) +
+                    _SSIM(tgt_img, ref_img_warped) * ssim_w).mean(dim=1, keepdim=True)
+    return diff
+
 
 def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics, occlusion_mask=None):
     """ Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
@@ -41,8 +48,46 @@ def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics,
 
     return photometric_loss, ssim_loss
 
+def cc_mask_consensus_loss(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd):
+    """ Mask segmentation loss 
+
+    Args:
+        - ref_img: frames at t_0
+        - tgt_img: frames at t_1
+        - cam_flows_fwd:
+        - cam_flows_bwd: 
+        - static_flows_fwd:
+        - static_flows_bwd:
+
+    """
+    # warp imgs through camera induced scene flow and optical flow (or reconstruction through scene flow)
+    # img layout: (L, R) at each idx i for ref_imgs, tgt_imgs
+    for (ref_imgs, tgt_imgs, cam_flow_fwd, static_sceneflow_fwd) in zip(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd):
+
+        # project scene flow to optical flow
+        static_opticalflow_fwd = projectSceneFlow2Flow(static_sceneflow_fwd)
+        
+        # warp reference imgs
+        cam_warped_img_fwd = flow_warp(ref_img, cam_flow_fwd)
+        flow_warped_img_fwd = flow_warp(ref_img, static_opticalflow_fwd)
+
+        # extract valid pixels 
+        cam_valid = torch.ones_like(cam_warped_img_fwd)
+        flow_valid = torch.ones_like(flow_warped_img_fwd)
+
+        # calculate error  on valid pixels
+        cam_error = _reconstruction_error(tgt_img, cam_warped_img_fwd) * cam_valid
+        flow_error = _reconstruction_error(tgt_img, flow_warped_img_fwd) * flow_valid
+
+        target_mask = (cam_error < flow_error).type_as(cam_error)
+
+
+
+
+    return loss
+
 def motion_mask_consistency_loss(target_dict, 
-                                 flow_f_s, flow_f_d, flow_b_s, flow_b_d
+                                 flow_f_s, flow_f_d, flow_b_s, flow_b_d,
                                  rigidity_mask_f_l, rigidity_mask_b_l, rigidity_mask_f_r, rigidity_mask_b_r, 
                                  cam_motion_f_l, cam_motion_b_l, cam_motion_f_r, cam_motion_b_r, 
                                  disparity,
@@ -57,7 +102,7 @@ def motion_mask_consistency_loss(target_dict,
     intrinsics_r = target_dict['input_k_r1']
 
     depth_l1 = _disp2depth_kitti_K(disparity, intrinsics_l)
-    depth_r1 = _disp2depth_kitti_K(disparity, intrinsics_r)
+    depth_r1 = -_disp2depth_kitti_K(-disparity, intrinsics_r)
 
     cam_flow_f_l = pose2flow(depth_l1, cam_motion_f_l, intrinsics_l, torch.inverse(intrinsics_l))
     cam_flow_f_r = pose2flow(depth_r1, cam_motion_f_r, intrinsics_r, torch.inverse(intrinsics_r))
@@ -67,6 +112,8 @@ def motion_mask_consistency_loss(target_dict,
 
     cam_diff_d_l = (flow_f_d - cam_flow_f_l) * rigidity_mask_f_r # we expect this to be the rigidity mask
     cam_diff_d_r = (flow_f_d - cam_flow_f_r) * rigidity_mask_f_r # we expect this to be the rigidity mask
+
+    
 
     if not use_occluded:
         occ_map_b_s = _adaptive_disocc_detection(flow_f_s).detach() * disp_occ_l2
@@ -85,40 +132,43 @@ def motion_mask_consistency_loss(target_dict,
 
     return loss
 
-def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, disparity):
+def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, disparity=None):
+    """ In a stereo setting, the estimated camera motion from both monocular sequences must be equivalent
+
+    XXX: This can be rendered useless if instead we create a stereo egomotion estimation module which is probably the best idea for this
+
+    """
+    if disparity is None:
+        return torch.norm(pose_vec2mat(cam_motion_l) - pose_vec2mat(cam_motion_r)) # FIXME: this is a garbage solution
+
     intrinsics_l = target_dict['input_k_l1']
     intrinsics_r = target_dict['input_k_r1']
 
-    depth_l = _disp2depth_kitti_K(disparity, intrinsics_l)
+    depth_l = _disp2depth_kitti_K(disparity, intrinsics_l[:, 0, 0])
     cam_flow_l = pose2flow(depth_l, cam_motion_l, intrinsics_l, torch.inverse(intrinsics_l))
 
-    depth_r = _disp2depth_kitti_K(disparity, intrinsics_r)
+    depth_r = _disp2depth_kitti_K(disparity, intrinsics_r[:, 0, 0])
     cam_flow_r = pose2flow(depth_r, cam_motion_r, intrinsics_r, torch.inverse(intrinsics_r))
 
-    loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
+    # loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
+    loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
 
     return loss
 
 
 def stereo_consistency_loss(l1, l2, r1, r2, flow, ):
     """ Stereo consistency between the egomotion/disparity of left images vs right images
-    Disparity loss between 
+    Joint egomotion + disparity reconstruction loss from L1 to R2
     """
     return loss
 
 ### Other losses
 
-def static_scene_reconstruction_loss(ref_img, camera_motion, rigidity_mask, intrinsics):
+def camera_motion_reconstruction_loss(ref_img, camera_motion, rigidity_mask, intrinsics):
     """ Static scene reconstruction loss through camera pose and disparity
     Args:
-
     """
-
-    loss = 0
-    return loss
-
-
-def dynamic_scene_reconstruction_loss(ref_img, flow_d, rigidity_mask, intrinsics):
+    
     loss = 0
     return loss
 
@@ -188,6 +238,7 @@ def _apply_disparity(img, disp):
     # Apply shift in X direction
     # Disparity is passed in NCHW format with 1 channel
     x_shifts = disp[:, 0, :, :]
+    print(x_shifts)
     flow_field = torch.stack((x_base + x_shifts, y_base), dim=3)
     # In grid_sample coordinates are assumed to be between -1 and 1
     output = tf.grid_sample(img, 2 * flow_field - 1,
