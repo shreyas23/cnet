@@ -17,7 +17,7 @@ from ssim import ssim
 #            Consistency Losses               #
 ###############################################
 
-# TODO: FIX SSIM SHIT
+# TODO: FIX SSIM_W SHIT
 def _reconstruction_error(tgt_img, ref_img_warped, ssim_w=None):
     diff = (_elementwise_l1(tgt_img, ref_img_warped) * (1.0 - ssim_w) +
                     _SSIM(tgt_img, ref_img_warped) * ssim_w).mean(dim=1, keepdim=True)
@@ -48,43 +48,49 @@ def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics,
 
     return photometric_loss, ssim_loss
 
-def cc_mask_consensus_loss(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd):
+def cc_mask_consensus_loss(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd, disparities, intrinsics, motion_masks, diff_thresh=.3):
     """ Mask segmentation loss 
 
     Args:
-        - ref_img: frames at t_0
-        - tgt_img: frames at t_1
-        - cam_flows_fwd:
-        - cam_flows_bwd: 
-        - static_flows_fwd:
-        - static_flows_bwd:
+        - ref_imgs: (num_views, 3, H, W)
+        - tgt_imgs: (num_views, 3, H, W)
+        - cam_flows_fwd: (num_views, 2, H, W)
+        - cam_flows_bwd: (num_views, 2, H, W)
+        - static_flows_fwd: (num_views, 2, H, W)
+        - static_flows_bwd: (num_views, 2, H, W)
 
     """
+
+    losses = []
+
     # warp imgs through camera induced scene flow and optical flow (or reconstruction through scene flow)
-    # img layout: (L, R) at each idx i for ref_imgs, tgt_imgs
-    for (ref_imgs, tgt_imgs, cam_flow_fwd, static_sceneflow_fwd) in zip(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd):
+    # iterate through each stereo pair available
+    for (ref_imgs, tgt_imgs, cam_flow_fwd, static_sceneflow_fwd, disparity, K) in zip(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd, disparities, K):
 
         # project scene flow to optical flow
-        static_opticalflow_fwd = projectSceneFlow2Flow(static_sceneflow_fwd)
+        static_optical_flow_fwd = projectSceneFlow2Flow(intrinsics, static_sceneflow_fwd, disparity)
         
         # warp reference imgs
-        cam_warped_img_fwd = flow_warp(ref_img, cam_flow_fwd)
-        flow_warped_img_fwd = flow_warp(ref_img, static_opticalflow_fwd)
+        cam_warped_imgs_fwd  = torch.cat([flow_warp(ref_img, cam_flow_fwd) for ref_img in ref_imgs], dim=0)
+        flow_warped_imgs_fwd = torch.cat([flow_warp(ref_img, static_optical_flow_fwd) for ref_img in ref_imgs], dim=0)
 
-        # extract valid pixels 
-        cam_valid = torch.ones_like(cam_warped_img_fwd)
-        flow_valid = torch.ones_like(flow_warped_img_fwd)
+        # TODO: extract valid pixels 
+        cam_valids = torch.ones_like(cam_warped_imgs_fwd)
+        flow_valids = torch.ones_like(flow_warped_imgs_fwd)
 
         # calculate error  on valid pixels
-        cam_error = _reconstruction_error(tgt_img, cam_warped_img_fwd) * cam_valid
-        flow_error = _reconstruction_error(tgt_img, flow_warped_img_fwd) * flow_valid
+        cam_errors = torch.cat([_reconstruction_error(tgt_imgs, cam_warped_imgs_fwd) * cam_valids], dim=0)
+        flow_errors = torch.cat([_reconstruction_error(tgt_imgs, flow_warped_imgs_fwd) * flow_valids], dim=0)
 
-        target_mask = (cam_error < flow_error).type_as(cam_error)
+        target_masks = (cam_errors < flow_errors).bool()
+        flow_diff = ((cam_flow_fwd - static_optical_flow_fwd) < diff_thresh).bool()
+        census_target_masks = target_masks | flow_diff
 
+        loss = tf.binary_cross_entropy(motion_masks, census_target_masks, reduction='none')
 
-
-
-    return loss
+        losses.append(loss)
+    
+    return 
 
 def motion_mask_consistency_loss(target_dict, 
                                  flow_f_s, flow_f_d, flow_b_s, flow_b_d,
