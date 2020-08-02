@@ -58,39 +58,35 @@ def cc_mask_consensus_loss(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd, 
         - cam_flows_bwd: (num_views, 2, H, W)
         - static_flows_fwd: (num_views, 2, H, W)
         - static_flows_bwd: (num_views, 2, H, W)
+        - view_disparities (num_views, H, W)
 
     """
 
-    losses = []
+    num_views, _, _, _ = ref_imgs.shape
 
-    # warp imgs through camera induced scene flow and optical flow (or reconstruction through scene flow)
-    # iterate through each stereo pair available
-    for (ref_imgs, tgt_imgs, cam_flow_fwd, static_sceneflow_fwd, disparity, K) in zip(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd, disparities, K):
-
-        # project scene flow to optical flow
-        static_optical_flow_fwd = projectSceneFlow2Flow(intrinsics, static_sceneflow_fwd, disparity)
-        
-        # warp reference imgs
-        cam_warped_imgs_fwd  = torch.cat([flow_warp(ref_img, cam_flow_fwd) for ref_img in ref_imgs], dim=0)
-        flow_warped_imgs_fwd = torch.cat([flow_warp(ref_img, static_optical_flow_fwd) for ref_img in ref_imgs], dim=0)
-
-        # TODO: extract valid pixels 
-        cam_valids = torch.ones_like(cam_warped_imgs_fwd)
-        flow_valids = torch.ones_like(flow_warped_imgs_fwd)
-
-        # calculate error  on valid pixels
-        cam_errors = torch.cat([_reconstruction_error(tgt_imgs, cam_warped_imgs_fwd) * cam_valids], dim=0)
-        flow_errors = torch.cat([_reconstruction_error(tgt_imgs, flow_warped_imgs_fwd) * flow_valids], dim=0)
-
-        target_masks = (cam_errors < flow_errors).bool()
-        flow_diff = ((cam_flow_fwd - static_optical_flow_fwd) < diff_thresh).bool()
-        census_target_masks = target_masks | flow_diff
-
-        loss = tf.binary_cross_entropy(motion_masks, census_target_masks, reduction='none')
-
-        losses.append(loss)
+    # project scene flow to optical flow
+    static_optical_flows_fwd = [projectSceneFlow2Flow(K, static_sceneflow_fwd, disparity) 
+                                for (K, static_sceneflow_fwd, disparity) in zip(intrinsics, static_flows_fwd, disparities)]
     
-    return 
+    # warp reference imgs
+    cam_warped_imgs_fwd  = torch.cat([flow_warp(ref_imgs[i], cam_flows_fwd[i]) for i in range(num_views)], dim=0)
+    flow_warped_imgs_fwd = torch.cat([flow_warp(ref_imgs[i], static_optical_flows_fwd[i]) for i in range(num_views)], dim=0)
+
+    # TODO: extract valid pixels 
+    cam_valids = torch.cat([torch.ones_like(warped_img) for warped_img in cam_warped_imgs_fwd], dim=0)
+    flow_valids = torch.cat([torch.ones_like(warped_img) for warped_img in flow_warped_imgs_fwd], dim=0)
+
+    # calculate error  on valid pixels
+    cam_errors = _reconstruction_error(tgt_imgs, cam_warped_imgs_fwd) * cam_valids
+    flow_errors = _reconstruction_error(tgt_imgs, flow_warped_imgs_fwd) * flow_valids
+
+    target_masks = (cam_errors <= flow_errors).bool()
+    flow_diff = ((cam_flows_fwd - static_optical_flows_fwd).abs() < diff_thresh).bool()
+    census_target_masks = target_masks | flow_diff
+
+    loss = tf.binary_cross_entropy(motion_masks, census_target_masks, reduction='none').mean()
+    
+    return loss
 
 def motion_mask_consistency_loss(target_dict, 
                                  flow_f_s, flow_f_d, flow_b_s, flow_b_d,
