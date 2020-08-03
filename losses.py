@@ -10,19 +10,12 @@ from utils.sceneflow_util import pixel2pts_ms, pts2pixel_ms, reconstructImg, rec
 from utils.monodepth_eval import compute_errors, compute_d1_all
 from models.modules_sceneflow import WarpingLayer_Flow
 
-from utils.inverse_warp import flow_warp, pose2flow, pose_vec2mat
+from utils.inverse_warp import inverse_warp, flow_warp, pose2flow, pose_vec2mat
 from ssim import ssim
 
 ###############################################
 #            Consistency Losses               #
 ###############################################
-
-# TODO: FIX SSIM_W SHIT
-def _reconstruction_error(tgt_img, ref_img_warped, ssim_w=None):
-    diff = (_elementwise_l1(tgt_img, ref_img_warped) * (1.0 - ssim_w) +
-                    _SSIM(tgt_img, ref_img_warped) * ssim_w).mean(dim=1, keepdim=True)
-    return diff
-
 
 def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics, occlusion_mask=None):
     """ Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
@@ -157,23 +150,51 @@ def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, d
 
     return loss
 
-
-def stereo_consistency_loss(l1, l2, r1, r2, flow, ):
+def stereo_consistency_loss(ref_img, tgt_img, optical_flow, disparity, direction='right'):
     """ Stereo consistency between the egomotion/disparity of left images vs right images
     Joint egomotion + disparity reconstruction loss from L1 to R2
+    Args:
+        - l1, r2: left image frame t, right img frame t+1 
+        - optical_flow: flow from frame t to t+1
+        - disparity: pixel-wise transformation from left frame to right frame t+1
     """
+    if direction == 'right':
+        warped_img = flow_warp(ref_img, optical_flow)
+        valid_pixels = torch.ones_like(warped_img)
+        warped_img = _apply_disparity(warped_img, disparity)
+        valid_pixels |= torch.ones_like(valid_pixels)
+    elif direction == 'left':
+        warped_img = _apply_disparity(ref_img, disparity)
+        valid_pixels = torch.ones_like(warped_img)
+        warped_img = flow_warp(warped_img, optical_flow)
+        valid_pixels |= torch.ones_like(valid_pixels)
+    else:
+        print("Incorrect warping direction given. Must be 'left' or 'right' ")
+        return None
+
+    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
+
     return loss
 
 ### Other losses
+# TODO: FIX SSIM_W SHIT
+def _reconstruction_error(tgt_img, ref_img_warped, ssim_w=None):
+    diff = (_elementwise_l1(tgt_img, ref_img_warped) * (1.0 - ssim_w) +
+                    _SSIM(tgt_img, ref_img_warped) * ssim_w).mean(dim=1, keepdim=True)
+    return diff
 
-def camera_motion_reconstruction_loss(ref_img, camera_motion, rigidity_mask, intrinsics):
+
+def camera_motion_reconstruction_loss(ref_img, tgt_img, depth, camera_motion, intrinsics):
     """ Static scene reconstruction loss through camera pose and disparity
     Args:
     """
-    
-    loss = 0
-    return loss
+    # reconstruct image using ego motion params
+    warped_img = inverse_warp(ref_img, depth, camera_motion, intrinsics, torch.inverse(intrinsics))
 
+    # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
+    valid_pixels = None
+    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
+    return loss
 
 """
 Binary cross entropy loss for motion mask 
