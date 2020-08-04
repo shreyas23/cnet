@@ -17,29 +17,32 @@ from ssim import ssim
 #            Consistency Losses               #
 ###############################################
 
-def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics, occlusion_mask=None):
-    """ Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
-
-    All input args. are at one scale
-
-    1. Project scene flow to optical flow
-    2. Warp reference image through optical flow
-    3. Photometric loss
+# TODO: figure out occlusion/valid pixel shit
+def stereo_consistency_loss(ref_imgs, tgt_imgs, optical_flow, disparity, direction='right'):
+    """ Stereo consistency between the egomotion/disparity of left images vs right images
+    Joint egomotion + disparity reconstruction loss from L1 to R2
+    Args:
+        - ref_img, tgt_img: bottom left/right img, top right/left img in stereo setting
+        - optical_flow: flow from frame t to t+1 for left/right img
+        - disparity: pixel-wise translation for frame t+1
     """
+    if direction == 'right':
+        warped_img = flow_warp(ref_img, optical_flow)
+        valid_pixels = torch.ones_like(warped_img)
+        warped_img = _apply_disparity(warped_img, disparity)
+        valid_pixels |= torch.ones_like(valid_pixels)
+    elif direction == 'left':
+        warped_img = _apply_disparity(ref_img, disparity)
+        valid_pixels = torch.ones_like(warped_img)
+        warped_img = flow_warp(warped_img, optical_flow)
+        valid_pixels |= torch.ones_like(valid_pixels)
+    else:
+        print("Incorrect warping direction given. Must be 'left' or 'right' ")
+        return None
 
-    optical_flow = projectSceneFlow2Flow(intrinsics, scene_flow, disparity)
+    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
 
-    warped_img = flow_warp(ref_img, optical_flow)
-    valid_pixels = 1 - (warped_img == 0).type_as(warped_img) # XXX: this seems fishy to me, what if there are pure black pixels
-    diff = (warped_img - ref_img) * valid_pixels
-    ssim_loss = _SSIM(ref_img, warped_img)
-
-    # if occlusion_mask:
-
-    photometric_loss = 0
-    ssim_loss = 0
-
-    return photometric_loss, ssim_loss
+    return loss
 
 def cc_mask_consensus_loss(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd, disparities, intrinsics, motion_masks, diff_thresh=.3):
     """ Mask segmentation loss 
@@ -81,6 +84,31 @@ def cc_mask_consensus_loss(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd, 
     
     return loss
 
+def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics, occlusion_mask=None):
+    """ Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
+
+    All input args. are at one scale
+
+    1. Project scene flow to optical flow
+    2. Warp reference image through optical flow
+    3. Photometric loss
+    """
+
+    optical_flow = projectSceneFlow2Flow(intrinsics, scene_flow, disparity)
+
+    warped_img = flow_warp(ref_img, optical_flow)
+    valid_pixels = 1 - (warped_img == 0).type_as(warped_img) # XXX: this seems fishy to me, what if there are pure black pixels
+    diff = (warped_img - ref_img) * valid_pixels
+    ssim_loss = _SSIM(ref_img, warped_img)
+
+    # if occlusion_mask:
+
+    photometric_loss = 0
+    ssim_loss = 0
+
+    return photometric_loss, ssim_loss
+
+# TODO: wtf is going on here
 def motion_mask_consistency_loss(target_dict, 
                                  flow_f_s, flow_f_d, flow_b_s, flow_b_d,
                                  rigidity_mask_f_l, rigidity_mask_b_l, rigidity_mask_f_r, rigidity_mask_b_r, 
@@ -108,8 +136,6 @@ def motion_mask_consistency_loss(target_dict,
     cam_diff_d_l = (flow_f_d - cam_flow_f_l) * rigidity_mask_f_r # we expect this to be the rigidity mask
     cam_diff_d_r = (flow_f_d - cam_flow_f_r) * rigidity_mask_f_r # we expect this to be the rigidity mask
 
-    
-
     if not use_occluded:
         occ_map_b_s = _adaptive_disocc_detection(flow_f_s).detach() * disp_occ_l2
         occ_map_f_s = _adaptive_disocc_detection(flow_b_s).detach() * disp_occ_l1
@@ -133,9 +159,6 @@ def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, d
     XXX: This can be rendered useless if instead we create a stereo egomotion estimation module which is probably the best idea for this
 
     """
-    if disparity is None:
-        return torch.norm(pose_vec2mat(cam_motion_l) - pose_vec2mat(cam_motion_r)) # FIXME: this is a garbage solution
-
     intrinsics_l = target_dict['input_k_l1']
     intrinsics_r = target_dict['input_k_r1']
 
@@ -147,32 +170,6 @@ def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, d
 
     # loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
     loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
-
-    return loss
-
-def stereo_consistency_loss(ref_img, tgt_img, optical_flow, disparity, direction='right'):
-    """ Stereo consistency between the egomotion/disparity of left images vs right images
-    Joint egomotion + disparity reconstruction loss from L1 to R2
-    Args:
-        - l1, r2: left image frame t, right img frame t+1 
-        - optical_flow: flow from frame t to t+1
-        - disparity: pixel-wise transformation from left frame to right frame t+1
-    """
-    if direction == 'right':
-        warped_img = flow_warp(ref_img, optical_flow)
-        valid_pixels = torch.ones_like(warped_img)
-        warped_img = _apply_disparity(warped_img, disparity)
-        valid_pixels |= torch.ones_like(valid_pixels)
-    elif direction == 'left':
-        warped_img = _apply_disparity(ref_img, disparity)
-        valid_pixels = torch.ones_like(warped_img)
-        warped_img = flow_warp(warped_img, optical_flow)
-        valid_pixels |= torch.ones_like(valid_pixels)
-    else:
-        print("Incorrect warping direction given. Must be 'left' or 'right' ")
-        return None
-
-    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
 
     return loss
 
