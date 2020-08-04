@@ -1,10 +1,24 @@
 # Scene Flow Estimation Notes
 
+## General Notes
+    General idea is that the scene flow can be understood better if there was a better understanding of motion decomposition.
+    
+    One way to decompose the scene is through motion segmenation, however, what do we use as a learning signal for motion segmentation?
+
+    Why do we need motion segmentation?
+        - Provides a learning signal for the network to differentiate between cues that apply to static vs dynamic scenes
+
+## Avoiding Chicken-Egg Situation
+    - In order to merge the sceneflow/disparity decoders to learn properly, we need the mask segmentation network to be pre-trained and then place an emphasis on 
+    - We need some sort of supervisory signal to learn motion segmentation
+    - Pretrain the mask segmentation network using CARLA? 
+    - Can't pretrain the static/dynamic optical flow subnetworks because it won't learn the concept of static vs dynamic.
+    -
+    
 ## Camera Motion Estimation
 
 - More views the better for camera motion/egomotion estimation
-
-- 
+-  
 
 ## Overall Architecture
 
@@ -16,5 +30,3 @@
 ## Loss Functions
 
 ### Consistency
-
-### General 
