@@ -27,6 +27,11 @@
     Main Issue with this is chicken/egg optimization problem with the motion segmentation mask and split scene flow estimators.  
     We use the motion segmentation mask to merge the static + dynamic scene flows and disparities
 
-## Loss Functions
+## Baseline Loss Functions
+- Static reconstruction loss for both static sceneflow decoder and camera motion + disparity 
+- Dynamic scene reconstruction loss (traditional optical flow loss)
+- 3d point euclidean loss
+- supervised binary cross entropy loss for motion mask pretraining 
+- self supervised consistency loss for motion mask segmentation vs. dynamic/static sceneflow
 
 ### Consistency
