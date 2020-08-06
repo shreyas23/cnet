@@ -13,12 +13,14 @@ from models.modules_sceneflow import WarpingLayer_Flow
 from utils.inverse_warp import inverse_warp, flow_warp, pose2flow, pose_vec2mat
 from ssim import ssim
 
+epsilon = 1e-8
+
 ###############################################
 #            Consistency Losses               #
 ###############################################
 
 # TODO: figure out occlusion/valid pixel shit
-def stereo_consistency_loss(ref_imgs, tgt_imgs, optical_flow, disparity, direction='right'):
+def stereo_consistency_loss(ref_imgs, tgt_imgs, optical_flow, disparity):
     """ Stereo consistency between the egomotion/disparity of left images vs right images
     Joint egomotion + disparity reconstruction loss from L1 to R2
     Args:
@@ -26,20 +28,10 @@ def stereo_consistency_loss(ref_imgs, tgt_imgs, optical_flow, disparity, directi
         - optical_flow: flow from frame t to t+1 for left/right img
         - disparity: pixel-wise translation for frame t+1
     """
-    if direction == 'right':
-        warped_img = flow_warp(ref_img, optical_flow)
-        valid_pixels = torch.ones_like(warped_img)
-        warped_img = _apply_disparity(warped_img, disparity)
-        valid_pixels |= torch.ones_like(valid_pixels)
-    elif direction == 'left':
-        warped_img = _apply_disparity(ref_img, disparity)
-        valid_pixels = torch.ones_like(warped_img)
-        warped_img = flow_warp(warped_img, optical_flow)
-        valid_pixels |= torch.ones_like(valid_pixels)
-    else:
-        print("Incorrect warping direction given. Must be 'left' or 'right' ")
-        return None
-
+    warped_img = flow_warp(ref_imgs[0], optical_flow)
+    valid_pixels = torch.ones_like(warped_img)
+    warped_img = _apply_disparity(warped_img, disparity)
+    valid_pixels |= torch.ones_like(valid_pixels)
     loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
 
     return loss
@@ -180,6 +172,19 @@ def _reconstruction_error(tgt_img, ref_img_warped, ssim_w=None):
                     _SSIM(tgt_img, ref_img_warped) * ssim_w).mean(dim=1, keepdim=True)
     return diff
 
+def weighted_binary_cross_entropy(output, target, weights=None):
+    """ Referenced from https://github.com/anuragranj/cc/blob/master/loss_functions.py
+
+    """
+    if weights is not None:
+        assert len(weights) == 2
+
+        loss = weights[1] * (target * torch.log(output + epsilon)) + \
+               weights[0] * ((1 - target) * torch.log(1 - output + epsilon))
+    else:
+        loss = target * torch.log(output + epsilon) + (1 - target) * torch.log(1 - output + epsilon)
+
+    return torch.neg(torch.mean(loss))
 
 def camera_motion_reconstruction_loss(ref_img, tgt_img, depth, camera_motion, intrinsics):
     """ Static scene reconstruction loss through camera pose and disparity
