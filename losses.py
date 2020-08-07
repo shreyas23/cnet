@@ -20,7 +20,7 @@ epsilon = 1e-8
 ###############################################
 
 # TODO: figure out occlusion/valid pixel shit
-def stereo_consistency_loss(ref_imgs, tgt_imgs, optical_flow, disparity):
+def stereo_consistency_loss(ref_img, tgt_img, optical_flow_fwd, disparity):
     """ Stereo consistency between the egomotion/disparity of left images vs right images
     Joint egomotion + disparity reconstruction loss from L1 to R2
     Args:
@@ -28,13 +28,14 @@ def stereo_consistency_loss(ref_imgs, tgt_imgs, optical_flow, disparity):
         - optical_flow: flow from frame t to t+1 for left/right img
         - disparity: pixel-wise translation for frame t+1
     """
-    warped_img = flow_warp(ref_imgs[0], optical_flow)
-    valid_pixels = torch.ones_like(warped_img)
-    warped_img = _apply_disparity(warped_img, disparity)
-    valid_pixels |= torch.ones_like(valid_pixels)
-    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
-
-    return loss
+    valid_pixels_flow = _adaptive_disocc_detection(optical_flow_fwd).detach()
+    valid_pixels_disp = _adaptive_disocc_detection_disp(disparity).detach()
+    valid_pixels = valid_pixels_flow * valid_pixels_disp
+    warped_img = flow_warp(ref_img, optical_flow_fwd) * valid_pixels_flow
+    warped_img = _apply_disparity(warped_img, disparity) * valid_pixels_disp
+    loss = _reconstruction_error(tgt_img, warped_img)
+    loss[~valid_pixels].detach()
+    return loss[valid_pixels].mean()
 
 def cc_mask_consensus_loss(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd, disparities, intrinsics, motion_masks, diff_thresh=.3):
     """ Mask segmentation loss 
