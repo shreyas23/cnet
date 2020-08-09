@@ -39,7 +39,10 @@ def stereo_consistency_loss(ref_img, tgt_img, optical_flow_fwd, disparity, disp_
 
     return loss[valid_pixels].mean()
 
-def cc_mask_consensus_loss(ref_imgs, tgt_imgs, cam_flows_fwd, static_flows_fwd, disparities, intrinsics, motion_masks, diff_thresh=.3):
+def cc_mask_consensus_loss(ref_imgs, tgt_imgs, 
+                           cam_flows_fwd, static_flows_fwd, 
+                           disparities, disp_occ_l1, disp_occ_l2,
+                           intrinsics, motion_masks, diff_thresh=.3):
     """ Mask segmentation loss 
 
     Args:
@@ -399,7 +402,7 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                            img_l1_aug, img_l2_aug, 
                            aug_size, ii):
 
-        
+
 
         return loss
 
