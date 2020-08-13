@@ -145,11 +145,18 @@ dynamic_labels = {
     'vehicle': np.array([60, 20, 220])
 }
 
-params = {'fov': '90', 'image_size_x': '1242', 'image_size_y': '375', 'iso': '200', 'gamma': '2.2', 'shutter_speed': '30'} #400
+params = {'fov': '82.55', 'image_size_x': '1242', 'image_size_y': '375', 'iso': '200', 'gamma': '2.2', 'shutter_speed': '30'} #400
 rgb_positions = {k:(int(k[0])%4, int(int(k[0])/4) *2 + int(k[1]=='R')) for k in camera_origins.keys()}
 other_positions = {k:(int(k[0])/4, int(k[0])%4) for k in camera_origins.keys() if "L" in k}
 width = int(params['image_size_x']) #1920
 height = int(params['image_size_y']) #1080
+
+f = width / (2 * np.tan(params['fov'] * np.pi / 360))
+cx = width / 2
+cy = height / 2
+
+intrinsics = np.array([f, 0, cx], [0, f, cy], [0, 0, 1])
+np.savetxt('save_root_dirTown05/intrinsics.txt', intrinsics)
 
 def process_images_batch(image_tag_pairs, stereo=True, rgb=True):
     if rgb == 0:
@@ -214,6 +221,7 @@ def main():
 
     logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
 
+    save_root_dir = '/external/datasets/carla_stereo/'
     world_name = 'Town05'
 
     try:
@@ -405,9 +413,9 @@ def main():
                 for camera_idx, rgb_name in enumerate(rgb_names,1):
                     img = image_to_bgr_array(output_images[camera_idx]).astype(np.uint8)
                     if "L" in rgb_name:
-                        cv2.imwrite('/external/datasets/carla_stereo/' + world_name + '/left/rgb/rgb_%06d.png' % frame_cnt, img)
+                        cv2.imwrite(save_root_dir + world_name + '/left/rgb/rgb_%06d.png' % frame_cnt, img)
                     elif "R" in rgb_name:
-                        cv2.imwrite('/external/datasets/carla_stereo/' + world_name + '/right/rgb/rgb_%06d.png' % frame_cnt, img)
+                        cv2.imwrite(save_root_dir + world_name + '/right/rgb/rgb_%06d.png' % frame_cnt, img)
                     else: 
                         print("No frames")
                         sys.exit(0)
@@ -420,9 +428,9 @@ def main():
                     img = image_to_bgr_array(output_images[camera_idx]).astype(np.float32)
                     img = np.dot(img[:, :, :3], [65536.0, 256.0, 1.0]) / 16777215.0
                     if "L" in depth_name:
-                        Image.fromarray(img).save('/external/datasets/carla_stereo/' + world_name + '/left/depth/depth_%06d.tif' % frame_cnt)
+                        Image.fromarray(img).save(save_root_dir + world_name + '/left/depth/depth_%06d.tif' % frame_cnt)
                     elif "R" in depth_name:
-                        Image.fromarray(img).save('/external/datasets/carla_stereo/' + world_name + '/right/depth/depth_%06d.tif' % frame_cnt)
+                        Image.fromarray(img).save(save_root_dir + world_name + '/right/depth/depth_%06d.tif' % frame_cnt)
                     else:
                         print("No frames")
                         sys.exit(0)
@@ -436,9 +444,9 @@ def main():
                     img = image_to_bgr_array(img)
                     img = semantic2motion(img, dynamic_labels).astype(np.uint8)
                     if "L" in semantic_name:
-                        cv2.imwrite('/external/datasets/carla_stereo/' + world_name + '/left/segmentation/segmentation_%06d.png' % frame_cnt, img)
+                        cv2.imwrite(save_root_dir + world_name + '/left/segmentation/segmentation_%06d.png' % frame_cnt, img)
                     elif "R" in semantic_name:
-                        cv2.imwrite('/external/datasets/carla_stereo/' + world_name + '/right/segmentation/segmentation_%06d.png' % frame_cnt, img)
+                        cv2.imwrite(save_root_dir + world_name + '/right/segmentation/segmentation_%06d.png' % frame_cnt, img)
                     else: 
                         print("No frames")
                         sys.exit(0)
@@ -460,7 +468,7 @@ def main():
                 poses['vehicle'] = {
                     'acceleration' : np.asarray([acc.x, acc.y, acc.z], np.float64),
                     'angular_velocity' : np.asarray([omega.x, omega.y, omega.z], np.float64),
-                    'Transform' : vehicle_snapshot.get_transform().get_matrix(),
+                    'transform' : vehicle_snapshot.get_transform().get_matrix(),
                     # 'Location' : np.asarray([loc.x, loc.y, loc.z], np.float64),
                     # 'yaw_degrees' : rot.yaw,
                     # 'pitch_degrees': rot.pitch,
@@ -468,7 +476,7 @@ def main():
                     'velocity' : np.asarray([vel.x, vel.y, vel.z], np.float64)
                 }
                 #print("Poses: ",poses)
-                with open('/external/datasets/carla_stereo/' + world_name + '/poses/poses_frame_%06d.json'%frame_cnt, 'w') as f_json:
+                with open(save_root_dir + world_name + '/poses/poses_%06d.json'%frame_cnt, 'w') as f_json:
                     json.dump(poses, f_json, cls = NumpyArrayEncoder, indent=4, sort_keys=True)
                     f_json.close()
 
