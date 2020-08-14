@@ -45,8 +45,7 @@ def kitti_crop_image_list(img_list, crop_info):
     str_y = crop_info[1]
     end_x = crop_info[2]
     end_y = crop_info[3]
-
-    transformed = [img[str_y:end_y, str_x:end_x, :] for img in img_list]
+    transformed = [img[str_y:end_y, str_x:end_x] for img in img_list]
 
     return transformed
 

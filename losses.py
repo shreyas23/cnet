@@ -10,6 +10,8 @@ from utils.sceneflow_util import pixel2pts_ms, pts2pixel_ms, reconstructImg, rec
 from utils.monodepth_eval import compute_errors, compute_d1_all
 from models.modules_sceneflow import WarpingLayer_Flow
 
+from utils.sceneflow_util import disp2depth_kitti
+
 from utils.inverse_warp import inverse_warp, flow_warp, pose2flow, pose_vec2mat
 from ssim import ssim
 
@@ -19,7 +21,7 @@ epsilon = 1e-8
 #            Consistency Losses               #
 ###############################################
 
-# TODO: figure out occlusion/valid pixel shit
+# done
 def stereo_consistency_loss(ref_img, tgt_img, optical_flow_fwd, disparity, disp_occ_l1, flow_occ_l1):
     """ Stereo consistency between the egomotion/disparity of left images vs right images
     Joint egomotion + disparity reconstruction loss from L1 to R2
@@ -39,6 +41,7 @@ def stereo_consistency_loss(ref_img, tgt_img, optical_flow_fwd, disparity, disp_
 
     return loss[valid_pixels].mean()
 
+# done, maybe we don't use this un? 
 def cc_mask_consensus_loss(ref_imgs, tgt_imgs, 
                            cam_flows_fwd, static_flows_fwd, 
                            disparities, disp_occ_l1, disp_occ_l2,
@@ -82,6 +85,50 @@ def cc_mask_consensus_loss(ref_imgs, tgt_imgs,
     
     return loss
 
+# done
+def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, depth_l, depth_r):
+    """ In a stereo setting, the estimated camera motion from both monocular sequences must be equivalent
+
+    XXX: This can be rendered useless if instead we create a stereo egomotion estimation module
+
+    """
+    intrinsics_l = target_dict['input_k_l1']
+    intrinsics_r = target_dict['input_k_r1']
+    cam_flow_l = pose2flow(depth_l, cam_motion_l, intrinsics_l, torch.inverse(intrinsics_l))
+    cam_flow_r = pose2flow(depth_r, cam_motion_r, intrinsics_r, torch.inverse(intrinsics_r))
+
+    # loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
+    loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
+    return loss
+
+# done
+def static_scene_reconstruction_loss(args, ref_img, tgt_img, disp, disp_occ, depth, camera_motion, intrinsics, motion_mask):
+    """ Static scene reconstruction loss through camera pose and disparity
+    a.k.a egomotion/disparity consistency
+    """
+    # reconstruct image using ego motion params
+    warped_img = inverse_warp(ref_img, depth, camera_motion, intrinsics, torch.inverse(intrinsics))
+    # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
+    valid_pixels = (1-motion_mask) * (1-disp_occ)
+    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
+
+    return loss
+
+# r/hmmm
+def static_scene_reconstruction_loss(ref_img, tgt_img, disp_occ, intrinsics, motion_mask):
+    """ Static scene reconstruction loss through camera pose and disparity
+    a.k.a egomotion/disparity consistency
+    """
+
+    # reconstruct image using ego motion params
+    warped_img = inverse_warp(ref_img, depth, camera_motion, intrinsics, torch.inverse(intrinsics))
+    # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
+    valid_pixels = motion_mask * (1-disp_occ)
+    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
+
+    return loss
+
+#unsure
 def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics, occlusion_mask=None):
     """ Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
 
@@ -108,7 +155,7 @@ def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics,
 
     return photometric_loss, ssim_loss
 
-# TODO: wtf is going on here -- lol dumbass
+# pretty sure this loss function doesn't make sense as an idea itself
 def motion_mask_consistency_loss(target_dict, 
                                  flow_f_s, flow_f_d, flow_b_s, flow_b_d,
                                  rigidity_mask_f,
@@ -128,7 +175,7 @@ def motion_mask_consistency_loss(target_dict,
     cam_flow_f = pose2flow(depth_l1, cam_motion_f, intrinsics, torch.inverse(intrinsics))
 
     disp_occ_l1 = _adaptive_disocc_detection_disp(disparity_l1)
-    disp_occ_l2 = _adaptive_disocc_detection_disp(disparity_l2)
+    # disp_occ_l2 = _adaptive_disocc_detection_disp(disparity_l2)
 
     if not use_occluded:
         occ_map_f_s = _adaptive_disocc_detection(flow_b_s).detach() * disp_occ_l1
@@ -147,26 +194,6 @@ def motion_mask_consistency_loss(target_dict,
     loss_dynamic = torch.norm(cam_diff_d, p=2)
 
     loss = loss_static + loss_dynamic
-
-    return loss
-
-def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, disparity=None):
-    """ In a stereo setting, the estimated camera motion from both monocular sequences must be equivalent
-
-    XXX: This can be rendered useless if instead we create a stereo egomotion estimation module which is probably the best idea for this
-
-    """
-    intrinsics_l = target_dict['input_k_l1']
-    intrinsics_r = target_dict['input_k_r1']
-
-    depth_l = _disp2depth_kitti_K(disparity, intrinsics_l[:, 0, 0])
-    cam_flow_l = pose2flow(depth_l, cam_motion_l, intrinsics_l, torch.inverse(intrinsics_l))
-
-    depth_r = _disp2depth_kitti_K(disparity, intrinsics_r[:, 0, 0])
-    cam_flow_r = pose2flow(depth_r, cam_motion_r, intrinsics_r, torch.inverse(intrinsics_r))
-
-    # loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
-    loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
 
     return loss
 
@@ -190,27 +217,8 @@ def weighted_binary_cross_entropy(output, target, weights=None):
 
     return torch.neg(torch.mean(loss))
 
-def camera_motion_reconstruction_loss(ref_img, tgt_img, depth, camera_motion, intrinsics):
-    """ Static scene reconstruction loss through camera pose and disparity
-    Args:
-    """
-    # reconstruct image using ego motion params
-    warped_img = inverse_warp(ref_img, depth, camera_motion, intrinsics, torch.inverse(intrinsics))
-
-    # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
-    valid_pixels = None
-    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
-    return loss
-
-"""
-Binary cross entropy loss for motion mask 
-TODO: Rethink this because it definitely should not be the case that 
-"""
-def motion_mask_loss(rigidity_mask):
-    ones = torch.ones_like(rigidity_mask)
-    loss = nn.functional.binary_cross_entropy(rigidity_mask, ones)
-    return 0
-
+def motion_mask_loss(ref, target):
+    return nn.functional.binary_cross_entropy(ref, target)
 
 ###############################################
 # Basic Module
