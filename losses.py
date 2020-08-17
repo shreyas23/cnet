@@ -22,7 +22,7 @@ epsilon = 1e-8
 ###############################################
 
 # done
-def stereo_consistency_loss(ref_img, tgt_img, optical_flow_fwd, disparity, disp_occ_l1, flow_occ_l1):
+def stereo_consistency_loss(args, ref_img, tgt_img, optical_flow_fwd, disparity, disp_occ_l1, flow_occ_l1):
     """ Stereo consistency between the egomotion/disparity of left images vs right images
     Joint egomotion + disparity reconstruction loss from L1 to R2
     Args:
@@ -42,7 +42,7 @@ def stereo_consistency_loss(ref_img, tgt_img, optical_flow_fwd, disparity, disp_
     return loss[valid_pixels].mean()
 
 # done, maybe we don't use this un? 
-def cc_mask_consensus_loss(ref_imgs, tgt_imgs, 
+def cc_mask_consensus_loss(args, ref_imgs, tgt_imgs, 
                            cam_flows_fwd, static_flows_fwd, 
                            disparities, disp_occ_l1, disp_occ_l2,
                            intrinsics, motion_masks, diff_thresh=.3):
@@ -86,7 +86,7 @@ def cc_mask_consensus_loss(ref_imgs, tgt_imgs,
     return loss
 
 # done
-def stereo_egomotion_consistency_loss(target_dict, cam_motion_l, cam_motion_r, depth_l, depth_r):
+def stereo_egomotion_consistency_loss(args, target_dict, cam_motion_l, cam_motion_r, depth_l, depth_r):
     """ In a stereo setting, the estimated camera motion from both monocular sequences must be equivalent
 
     XXX: This can be rendered useless if instead we create a stereo egomotion estimation module
@@ -114,8 +114,8 @@ def static_scene_reconstruction_loss(args, ref_img, tgt_img, disp, disp_occ, dep
 
     return loss
 
-# r/hmmm
-def static_scene_reconstruction_loss(ref_img, tgt_img, disp_occ, intrinsics, motion_mask):
+# done
+def static_scene_reconstruction_loss(args, ref_img, tgt_img, disp_occ, intrinsics, motion_mask):
     """ Static scene reconstruction loss through camera pose and disparity
     a.k.a egomotion/disparity consistency
     """
