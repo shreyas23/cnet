@@ -88,11 +88,11 @@ def intrinsic_scale(intrinsic, scale_y, scale_x):
     return intrinsic_s
 
 
-def pixel2pts_ms(intrinsic, output_disp, rel_scale):
+def pixel2pts_ms(intrinsic, output_disp, rel_scale, baseline=0.54):
     # pixel2pts
     intrinsic_dp_s = intrinsic_scale(
         intrinsic, rel_scale[:, 0], rel_scale[:, 1])
-    output_depth = disp2depth_kitti(output_disp, intrinsic_dp_s[:, 0, 0])
+    output_depth = disp2depth_kitti(output_disp, intrinsic_dp_s[:, 0, 0], baseline=baseline)
     pts, _ = pixel2pts(intrinsic_dp_s, output_depth)
 
     return pts, intrinsic_dp_s

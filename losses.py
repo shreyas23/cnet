@@ -275,7 +275,6 @@ def _apply_disparity(img, disp):
     # Apply shift in X direction
     # Disparity is passed in NCHW format with 1 channel
     x_shifts = disp[:, 0, :, :]
-    print(x_shifts)
     flow_field = torch.stack((x_base + x_shifts, y_base), dim=3)
     # In grid_sample coordinates are assumed to be between -1 and 1
     output = tf.grid_sample(img, 2 * flow_field - 1,
@@ -410,7 +409,23 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                            img_l1_aug, img_l2_aug, 
                            aug_size, ii):
 
+        _, _, h_dp, w_dp = sf_f.size()
+        disp_l1 = disp_l1 * w_dp
+        disp_l2 = disp_l2 * w_dp
 
+        # scale
+        local_scale = torch.zeros_like(aug_size)
+        local_scale[:, 0] = h_dp
+        local_scale[:, 1] = w_dp
+
+        pts1, k1_scale = pixel2pts_ms(
+            k_l1_aug, disp_l1, local_scale / aug_size)
+
+        pts2, k2_scale = pixel2pts_ms(
+            k_l2_aug, disp_l2, local_scale / aug_size)
+
+        _, pts1_tf, coord1 = pts2pixel_ms(k1_scale, pts1, sf_f, [h_dp, w_dp])
+        _, pts2_tf, coord2 = pts2pixel_ms(k2_scale, pts2, sf_b, [h_dp, w_dp])
 
         return loss
 
@@ -550,6 +565,9 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                                                                                k_l1_aug, k_l2_aug,
                                                                                img_l1_aug, img_l2_aug,
                                                                                aug_size, ii)
+
+            # consistency loss
+            loss_consistency, loss_static_reconstruction, loss_ego
 
             loss_sf_sum = loss_sf_sum + loss_sceneflow * self._weights[ii]
             loss_sf_2d = loss_sf_2d + loss_im
