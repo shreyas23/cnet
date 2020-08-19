@@ -22,7 +22,7 @@ epsilon = 1e-8
 ###############################################
 
 # done
-def stereo_consistency_loss(args, ref_img, tgt_img, optical_flow_fwd, disparity, flow_occ_l1, disp_occ_l2):
+def cross_term_loss(args, ref_img, tgt_img, optical_flow_fwd, disparity, flow_occ_l1, disp_occ_l2):
     """ Stereo consistency between the egomotion/disparity of left images vs right images
     Joint egomotion + disparity reconstruction loss from L1 to R2
     Args:
@@ -30,12 +30,11 @@ def stereo_consistency_loss(args, ref_img, tgt_img, optical_flow_fwd, disparity,
         - optical_flow: flow from frame t to t+1 for left/right img
         - disparity: pixel-wise translation for frame t+1
     """
-
-    warped_img = flow_warp(ref_img, optical_flow_fwd) * disp_occ_l1
+    warped_img = flow_warp(ref_img, optical_flow_fwd) * flow_occ_l1
     warped_img = _apply_disparity(warped_img, disparity) * disp_occ_l2
     loss = _reconstruction_error(tgt_img, warped_img)
+    valid_pixels = flow_occ_l1 * disp_occ_l2
     loss[~valid_pixels].detach()
-
     return loss[valid_pixels].mean()
 
 # done, maybe we don't use this un? 
@@ -83,35 +82,58 @@ def cc_mask_consensus_loss(args, ref_imgs, tgt_imgs,
     return loss
 
 # done
-def stereo_egomotion_consistency_loss(args, target_dict, cam_motion_l, cam_motion_r, depth_l, depth_r):
+def stereo_egomotion_consistency_loss(args, cam_motion_l, cam_motion_r, depth_l, depth_r, k_l, k_r):
     """ In a stereo setting, the estimated camera motion from both monocular sequences must be equivalent
-
-    XXX: This can be rendered useless if instead we create a stereo egomotion estimation module
-
+    XXX: This can be rendered useless if instead we create a stereo egomotion estimation module 
     """
-    intrinsics_l = target_dict['input_k_l1']
-    intrinsics_r = target_dict['input_k_r1']
-    cam_flow_l = pose2flow(depth_l, cam_motion_l, intrinsics_l, torch.inverse(intrinsics_l))
-    cam_flow_r = pose2flow(depth_r, cam_motion_r, intrinsics_r, torch.inverse(intrinsics_r))
+
+    cam_flow_l = pose2flow(depth_l, cam_motion_l, k_l, torch.inverse(k_l))
+    cam_flow_r = pose2flow(depth_r, cam_motion_r, k_r, torch.inverse(k_r))
 
     # loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
     loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
     return loss
 
 # done
-def scene_reconstruction_loss(args, ref_img, tgt_img, disp, disp_occ, depth, camera_motion, intrinsics, motion_mask, static=True):
+def dynamic_scene_reconstruction_loss(args, 
+                                     sf,
+                                     ref_img, tgt_img, 
+                                     disp, disp_occ,
+                                     intrinsics, motion_mask):
     """ Static scene reconstruction loss through camera pose and disparity
     a.k.a egomotion/disparity consistency
     motion mask static -> dynamic : 0 -> 1
     """
+   
+    # reconstruct image using ego motion params
+    flow = projectSceneFlow2Flow(intrinsics, sf, disp)
+    warped_img = projectSceneFlow2Flow(intrinsics, sf, disp)
+
+    flow_disocc = 
+
+    # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
+    valid_pixels = (1-motion_mask) * disp_occ
+
+    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
+
+    return loss
+
+# done
+def static_scene_reconstruction_loss(args, 
+                                     ref_img, tgt_img, 
+                                     disp, disp_occ, depth, 
+                                     camera_motion, intrinsics, motion_mask):
+    """ Static scene reconstruction loss through camera pose and disparity
+    a.k.a egomotion/disparity consistency
+    motion mask static -> dynamic : 0 -> 1
+    """
+   
     # reconstruct image using ego motion params
     warped_img = inverse_warp(ref_img, depth, camera_motion, intrinsics, torch.inverse(intrinsics))
 
     # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
-    if static:
-        valid_pixels = (1-motion_mask) * disp_occ
-    else:
-        valid_pixels = motion_mask * disp_occ
+    valid_pixels = (1-motion_mask) * disp_occ
+
     loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
 
     return loss
@@ -144,19 +166,17 @@ def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics,
     return photometric_loss, ssim_loss
 
 # pretty sure this loss function doesn't make sense as an idea itself
-def motion_mask_consistency_loss(target_dict, 
-                                 flow_f_s, flow_f_d, flow_b_s, flow_b_d,
+def motion_mask_consistency_loss(flow_f_s, flow_f_d, flow_b_s, flow_b_d,
                                  rigidity_mask_f,
                                  cam_motion_f, cam_motion_b,
                                  disparity_l1, disparity_l2,
+                                 intrinsics,
                                  use_occluded=False):
     """ Consistency loss between motion mask and projected optical flow at one scale
 
     In "static" regions of the image, the motion mask must be 0
     In "dynamic" regions of the image, the motion mask must be 1
     """
-
-    intrinsics = target_dict['input_k_l1']
 
     depth_l1 = _disp2depth_kitti_K(disparity_l1, intrinsics)
 
@@ -404,7 +424,16 @@ class Loss_SceneFlow_SemiSup(nn.Module):
 
         return loss_img + self._disp_smooth_w * loss_smooth, left_occ
 
-    def sceneflow_loss(self, sf_f, sf_b, disp_l1, disp_l2, disp_occ_l1, disp_occ_l2, k_l1_aug, k_l2_aug, img_l1_aug, img_l2_aug, aug_size, ii):
+    def sceneflow_loss(self, 
+                       sf_f, sf_b, 
+                       cm_f, cm_b, 
+                       disp_l1, disp_l2, 
+                       disp_occ_l1, disp_occ_l2, 
+                       k_l1_aug, k_l2_aug, 
+                       img_l1_aug, img_l2_aug, 
+                       img_r1_aug, img_r2_aug,
+                       motion_mask_f, motion_mask_b,
+                       aug_size, ii):
 
         _, _, h_dp, w_dp = sf_f.size()
         disp_l1 = disp_l1 * w_dp
@@ -1891,10 +1920,8 @@ class Basis_MonoDepthLoss(nn.Module):
         img_r_pyramid = self.scale_pyramid(img_r, disp_r)
 
         # Disocc map
-        right_occ = [
-            _adaptive_disocc_detection_disp(-disp_l[i]) for i in range(self.n)]
-        left_occ = [_adaptive_disocc_detection_disp(
-            disp_r[i]) for i in range(self.n)]
+        right_occ = [_adaptive_disocc_detection_disp(-disp_l[i]) for i in range(self.n)]
+        left_occ =  [_adaptive_disocc_detection_disp( disp_r[i]) for i in range(self.n)]
 
         # Image reconstruction loss
         left_est = [self.generate_image_left(
