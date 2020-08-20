@@ -38,7 +38,7 @@ def cross_term_loss(args, ref_img, tgt_img, optical_flow_fwd, disparity, flow_oc
     return loss[valid_pixels].mean()
 
 # done, maybe we don't use this un? 
-def cc_mask_consensus_loss(args, ref_imgs, tgt_imgs, 
+def cc_mask_consensus_loss(args, ref_img, tgt_img, 
                            cam_flows_fwd, static_flows_fwd, 
                            disparities, disp_occ_l1, disp_occ_l2,
                            intrinsics, motion_masks, diff_thresh=.3):
@@ -108,8 +108,6 @@ def dynamic_scene_reconstruction_loss(args,
     # reconstruct image using ego motion params
     flow = projectSceneFlow2Flow(intrinsics, sf, disp)
     warped_img = projectSceneFlow2Flow(intrinsics, sf, disp)
-
-    flow_disocc = 
 
     # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
     valid_pixels = (1-motion_mask) * disp_occ
@@ -401,11 +399,62 @@ class Loss_SceneFlow_SemiSup(nn.Module):
     def __init__(self, args):
         super(Loss_SceneFlow_SemiSup, self).__init__()
 
+        self._args = args
         self._weights = [4.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] # last three
         self._ssim_w = 0.85
         self._disp_smooth_w = 0.1
         self._sf_3d_pts = 0.2
         self._sf_3d_sm = 200
+
+    def consistency_loss(self, 
+                         img_l1_warp, img_l2_warp, # l2 reconstructed, l1 reconstructed
+                         sf_f, sf_b, 
+                         cms_f, cms_b, # cms: [left, right]
+                         disp_l1, disp_l2, 
+                         occ_map_f, occ_map_b,
+                         disp_occ_l1, disp_occ_l2, 
+                         k_l1_aug, k_l2_aug, 
+                         k_r1_aug, k_r2_aug,
+                         img_l1_aug, img_l2_aug, 
+                         img_r1_aug, img_r2_aug,
+                         motion_mask_f, motion_mask_b,
+                         aug_size, ii):
+
+        # cross term image reconstruction loss
+        cross_warp_img_f = _apply_disparity(img_l1_warp, disp_l2)
+        cross_warp_diff_f = _reconstruction_error(img_r2_aug, cross_warp_img_f, self._ssim_w)
+
+        cross_warp_img_b = _apply_disparity(img_l2_warp, disp_l1)
+        cross_warp_diff_b = _reconstruction_error(img_r2_aug, cross_warp_img_b, self._ssim_w)
+
+        loss_cross_f = cross_warp_diff_f[occ_map_f].mean()
+        loss_cross_b = cross_warp_diff_b[occ_map_b].mean()
+
+        loss_cross_f[~occ_map_f].detach_()
+        loss_cross_b[~occ_map_b].detach_()
+
+        stereo_consistency_loss = loss_cross_f + loss_cross_b
+
+        # egomotion consistency loss
+        depth_l1 = disp2depth_kitti(disp_l1, k_l1_aug[:, 0, 0], baseline=self._args['baseline'])
+        depth_r1 = _apply_disparity(depth_l1, disp_l1)
+
+        cam_flow_l = pose2flow(depth_l1, cms_f[0], k_l1_aug, torch.inverse(k_l1_aug))
+        cam_flow_r = pose2flow(depth_r1, cms_f[1], k_r1_aug, torch.inverse(k_r1_aug))
+
+        ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
+
+        # induced static scene flow knowledge distillation loss
+        static_scene_flow_consistency_diff = _elementwise_epe(cam_flow_l, sf_f)
+        static_scene_flow_consistency_loss = static_scene_flow_consistency_diff[motion_mask_f]
+
+        # mask consensus loss
+
+
+
+        loss = stereo_consistency_loss + ego_consistency_loss + static_scene_flow_consistency_loss
+
+        return loss
 
     def depth_loss_left_img(self, disp_l, disp_r, img_l_aug, img_r_aug, ii):
 
@@ -425,11 +474,12 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         return loss_img + self._disp_smooth_w * loss_smooth, left_occ
 
     def sceneflow_loss(self, 
-                       sf_f, sf_b, 
-                       cm_f, cm_b, 
+                       sf_f, sf_b, # sf: [static, dynamic]
+                       cms_f, cms_b, # cms: [left, right]
                        disp_l1, disp_l2, 
                        disp_occ_l1, disp_occ_l2, 
                        k_l1_aug, k_l2_aug, 
+                       k_r1_aug, k_r2_aug,
                        img_l1_aug, img_l2_aug, 
                        img_r1_aug, img_r2_aug,
                        motion_mask_f, motion_mask_b,
@@ -471,13 +521,12 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         loss_im1 = img_diff1[occ_map_f].mean()
         loss_im2 = img_diff2[occ_map_b].mean()
 
-        
-
         img_diff1[~occ_map_f].detach_()
         img_diff2[~occ_map_b].detach_()
         loss_im = loss_im1 + loss_im2
 
-        # Consistency reconstruction losses
+        loss_consistency = self.consistency_loss()
+
 
         # Point reconstruction Loss
         pts_norm1 = torch.norm(pts1, p=2, dim=1, keepdim=True)

@@ -13,7 +13,7 @@ from .common import read_image_as_byte, read_calib_into_dict
 from .common import kitti_crop_image_list, kitti_adjust_intrinsic
 
 
-class CarlaDataset(Dataset):
+class CarlaDataset(data.Dataset):
     def __init__(self,
                  args,
                  images_root=None,
@@ -72,8 +72,8 @@ class CarlaDataset(Dataset):
             file_num_tgt = '0' * (6 - len(idx_tgt)) + idx_tgt
             for sensor, ext in ext_dict.items():
                 if sensor == 'poses':
-                    paths.append(os.path.join(images_root, sensor, f"{sensor}_frame_{file_num+ext}"))
-                    paths.append(os.path.join(images_root, sensor, f"{sensor}_frame_{file_num_tgt+ext}"))
+                    paths.append(os.path.join(images_root, sensor, f"{sensor}_{file_num+ext}"))
+                    paths.append(os.path.join(images_root, sensor, f"{sensor}_{file_num_tgt+ext}"))
                 else:
                     for view in [view1, view2]:
                         paths.append(os.path.join(view, sensor, f"{sensor}_{file_num+ext}"))
@@ -115,7 +115,7 @@ class CarlaDataset(Dataset):
     def read_pose(self, path):
         with open(path) as f:
             d = json.load(f)
-            T = np.array(d['vehicle']['Transform'])
+            T = np.array(d['vehicle']['transform'])
         return T
 
 

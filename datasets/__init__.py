@@ -27,8 +27,3 @@ KITTI_Comb_Val			= kitti_comb_mnsf.KITTI_Comb_Val
 KITTI_Comb_Full			= kitti_comb_mnsf.KITTI_Comb_Full
 
 KITTI_Eigen_Test 			= kitti_eigen_test.KITTI_Eigen_Test
-
-
-
-
-

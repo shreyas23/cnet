@@ -151,12 +151,11 @@ other_positions = {k:(int(k[0])/4, int(k[0])%4) for k in camera_origins.keys() i
 width = int(params['image_size_x']) #1920
 height = int(params['image_size_y']) #1080
 
-f = width / (2 * np.tan(params['fov'] * np.pi / 360))
+f = width / (2 * np.tan(float(params['fov']) * np.pi / 360))
 cx = width / 2
 cy = height / 2
 
-intrinsics = np.array([f, 0, cx], [0, f, cy], [0, 0, 1])
-np.savetxt('save_root_dirTown05/intrinsics.txt', intrinsics)
+intrinsics = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1]])
 
 def process_images_batch(image_tag_pairs, stereo=True, rgb=True):
     if rgb == 0:
@@ -222,7 +221,9 @@ def main():
     logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
 
     save_root_dir = '/external/datasets/carla_stereo/'
-    world_name = 'Town05'
+    world_name = 'Town03'
+
+    np.savetxt(os.path.join(save_root_dir + world_name, 'intrinsics.txt'), intrinsics)
 
     try:
         print("Available maps: ", client.get_available_maps())
@@ -395,14 +396,25 @@ def main():
         cc_raw = carla.ColorConverter.LogarithmicDepth
         frame_cnt = 0
 
+        # need to make sure world motion has begun and is stable
+        stable = False
+
         # Create a synchronous mode context.
         with CarlaSyncMode(world, cams_list, fps=30) as sync_mode:
             while True:
                 if should_quit(frame_cnt):
                     return
-
+                
                 output_images = sync_mode.tick(timeout=2.0)
                 vehicle_snapshot = output_images[0].find(vehicle.id)
+
+                if frame_cnt < 150 and stable is False:
+                    print("stabilizing world: %i" % frame_cnt)
+                    frame_cnt += 1
+                    continue
+                elif frame_cnt == 150 and stable is False:
+                    frame_cnt = 0
+                    stable = True
 
                 #print("Vehicle location: ", vehicle_snapshot.get_transform().location)
                 #print("Vehicle velocity: ", vehicle_snapshot.get_velocity())
