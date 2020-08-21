@@ -22,209 +22,86 @@ epsilon = 1e-8
 ###############################################
 
 # done
-def cross_term_loss(args, ref_img, tgt_img, optical_flow_fwd, disparity, flow_occ_l1, disp_occ_l2):
-    """ Stereo consistency between the egomotion/disparity of left images vs right images
-    Joint egomotion + disparity reconstruction loss from L1 to R2
-    Args:
-        - ref_img, tgt_img: bottom left/right img, top right/left img in stereo setting
-        - optical_flow: flow from frame t to t+1 for left/right img
-        - disparity: pixel-wise translation for frame t+1
-    """
-    warped_img = flow_warp(ref_img, optical_flow_fwd) * flow_occ_l1
-    warped_img = _apply_disparity(warped_img, disparity) * disp_occ_l2
-    loss = _reconstruction_error(tgt_img, warped_img)
-    valid_pixels = flow_occ_l1 * disp_occ_l2
-    loss[~valid_pixels].detach()
-    return loss[valid_pixels].mean()
+# def cross_term_loss(args, ref_img, tgt_img, optical_flow_fwd, disparity, flow_occ_l1, disp_occ_l2):
+#     """ Stereo consistency between the egomotion/disparity of left images vs right images
+#     Joint egomotion + disparity reconstruction loss from L1 to R2
+#     Args:
+#         - ref_img, tgt_img: bottom left/right img, top right/left img in stereo setting
+#         - optical_flow: flow from frame t to t+1 for left/right img
+#         - disparity: pixel-wise translation for frame t+1
+#     """
+#     warped_img = flow_warp(ref_img, optical_flow_fwd) * flow_occ_l1
+#     warped_img = _apply_disparity(warped_img, disparity) * disp_occ_l2
+#     loss = _reconstruction_error(tgt_img, warped_img)
+#     valid_pixels = flow_occ_l1 * disp_occ_l2
+#     loss[~valid_pixels].detach()
+#     return loss[valid_pixels].mean()
 
-# done, maybe we don't use this un? 
-def cc_mask_consensus_loss(args, ref_img, tgt_img, 
-                           cam_flows_fwd, static_flows_fwd, 
-                           disparities, disp_occ_l1, disp_occ_l2,
-                           intrinsics, motion_masks, diff_thresh=.3):
-    """ Mask segmentation loss 
+# # done, maybe we don't use this un? 
+# def cc_mask_consensus_loss(args, 
+#                            ref_img, tgt_img, 
+#                            cm_f, cm_b,
+#                            disparities, disp_occ_l1, disp_occ_l2,
+#                            k_l1, motion_masks, diff_thresh=.3):
+#     """ Mask segmentation loss 
 
-    Args:
-        - ref_imgs: (num_views, 3, H, W)
-        - tgt_imgs: (num_views, 3, H, W)
-        - cam_flows_fwd: (num_views, 2, H, W)
-        - cam_flows_bwd: (num_views, 2, H, W)
-        - static_flows_fwd: (num_views, 2, H, W)
-        - static_flows_bwd: (num_views, 2, H, W)
-        - view_disparities (num_views, H, W)
+#     Args:
+#         - ref_imgs: (num_views, 3, H, W)
+#         - tgt_imgs: (num_views, 3, H, W)
+#         - cam_flows_fwd: (num_views, 2, H, W)
+#         - cam_flows_bwd: (num_views, 2, H, W)
+#         - static_flows_fwd: (num_views, 2, H, W)
+#         - static_flows_bwd: (num_views, 2, H, W)
+#         - view_disparities (num_views, H, W)
 
-    """
+#     """
 
-    num_views, _, _, _ = ref_imgs.shape
+#     num_views, _, _, _ = ref_img.shape
 
-    # project scene flow to optical flow
-    static_optical_flows_fwd = [projectSceneFlow2Flow(K, static_sceneflow_fwd, disparity) 
-                                for (K, static_sceneflow_fwd, disparity) in zip(intrinsics, static_flows_fwd, disparities)]
+#     # project scene flow to optical flow
+#     static_optical_flows_fwd = [projectSceneFlow2Flow(K, static_sceneflow_fwd, disparity) 
+#                                 for (K, static_sceneflow_fwd, disparity) in zip(intrinsics, static_flows_fwd, disparities)]
+#     static_flow_f = projectSceneFlow2Flow(intrinsc)
     
-    # warp reference imgs
-    cam_warped_imgs_fwd  = torch.cat([flow_warp(ref_imgs[i], cam_flows_fwd[i]) for i in range(num_views)], dim=0)
-    flow_warped_imgs_fwd = torch.cat([flow_warp(ref_imgs[i], static_optical_flows_fwd[i]) for i in range(num_views)], dim=0)
+#     # warp reference imgs
+#     cam_warped_img_f = flow_warp(ref_img, cam_flow_f)
+#     cam_warped_imgs_fwd  = torch.cat([flow_warp(ref_img, cam_flows_fwd) for i in range(num_views)], dim=0)
+#     flow_warped_imgs_fwd = torch.cat([flow_warp(ref_img, static_optical_flows_fwd) for i in range(num_views)], dim=0)
 
-    # TODO: extract valid pixels 
-    cam_valids = torch.cat([torch.ones_like(warped_img) for warped_img in cam_warped_imgs_fwd], dim=0)
-    flow_valids = torch.cat([torch.ones_like(warped_img) for warped_img in flow_warped_imgs_fwd], dim=0)
+#     # TODO: extract valid pixels 
+#     cam_valids = torch.cat([torch.ones_like(warped_img) for warped_img in cam_warped_imgs_fwd], dim=0)
+#     flow_valids = torch.cat([torch.ones_like(warped_img) for warped_img in flow_warped_imgs_fwd], dim=0)
 
-    # calculate error  on valid pixels
-    cam_errors = _reconstruction_error(tgt_imgs, cam_warped_imgs_fwd) * cam_valids
-    flow_errors = _reconstruction_error(tgt_imgs, flow_warped_imgs_fwd) * flow_valids
+#     # calculate error  on valid pixels
+#     cam_errors = _reconstruction_error(tgt_imgs, cam_warped_imgs_fwd) * cam_valids
+#     flow_errors = _reconstruction_error(tgt_imgs, flow_warped_imgs_fwd) * flow_valids
 
-    target_masks = (cam_errors <= flow_errors).bool()
-    flow_diff = ((cam_flows_fwd - static_optical_flows_fwd).abs() < diff_thresh).bool()
-    census_target_masks = target_masks | flow_diff
+#     target_masks = (cam_errors <= flow_errors).bool()
+#     flow_diff = ((cam_flows_fwd - static_optical_flows_fwd).abs() < diff_thresh).bool()
+#     census_target_masks = target_masks | flow_diff
 
-    loss = tf.binary_cross_entropy(motion_masks, census_target_masks, reduction='none').mean()
+#     loss = tf.binary_cross_entropy(motion_masks, census_target_masks, reduction='none').mean()
     
-    return loss
+#     return loss
 
-# done
-def stereo_egomotion_consistency_loss(args, cam_motion_l, cam_motion_r, depth_l, depth_r, k_l, k_r):
-    """ In a stereo setting, the estimated camera motion from both monocular sequences must be equivalent
-    XXX: This can be rendered useless if instead we create a stereo egomotion estimation module 
-    """
+# # done
+# def stereo_egomotion_consistency_loss(args, cam_motion_l, cam_motion_r, depth_l, depth_r, k_l, k_r):
+#     """ In a stereo setting, the estimated camera motion from both monocular sequences must be equivalent
+#     XXX: This can be rendered useless if instead we create a stereo egomotion estimation module 
+#     """
 
-    cam_flow_l = pose2flow(depth_l, cam_motion_l, k_l, torch.inverse(k_l))
-    cam_flow_r = pose2flow(depth_r, cam_motion_r, k_r, torch.inverse(k_r))
+#     cam_flow_l = pose2flow(depth_l, cam_motion_l, k_l, torch.inverse(k_l))
+#     cam_flow_r = pose2flow(depth_r, cam_motion_r, k_r, torch.inverse(k_r))
 
-    # loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
-    loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
-    return loss
-
-# done
-def dynamic_scene_reconstruction_loss(args, 
-                                     sf,
-                                     ref_img, tgt_img, 
-                                     disp, disp_occ,
-                                     intrinsics, motion_mask):
-    """ Static scene reconstruction loss through camera pose and disparity
-    a.k.a egomotion/disparity consistency
-    motion mask static -> dynamic : 0 -> 1
-    """
-   
-    # reconstruct image using ego motion params
-    flow = projectSceneFlow2Flow(intrinsics, sf, disp)
-    warped_img = projectSceneFlow2Flow(intrinsics, sf, disp)
-
-    # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
-    valid_pixels = (1-motion_mask) * disp_occ
-
-    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
-
-    return loss
-
-# done
-def static_scene_reconstruction_loss(args, 
-                                     ref_img, tgt_img, 
-                                     disp, disp_occ, depth, 
-                                     camera_motion, intrinsics, motion_mask):
-    """ Static scene reconstruction loss through camera pose and disparity
-    a.k.a egomotion/disparity consistency
-    motion mask static -> dynamic : 0 -> 1
-    """
-   
-    # reconstruct image using ego motion params
-    warped_img = inverse_warp(ref_img, depth, camera_motion, intrinsics, torch.inverse(intrinsics))
-
-    # calculate loss over all pixels that can be reconstructed (aka in frame t+1)
-    valid_pixels = (1-motion_mask) * disp_occ
-
-    loss = _reconstruction_error(tgt_img, warped_img) * valid_pixels
-
-    return loss
-
-#unsure
-def optical_flow_loss(ref_img, scene_flow, disparity, rigidity_mask, intrinsics, occlusion_mask=None):
-    """ Projected scene flow loss in 2D (optical flow losses) to have 3D/2D consistency
-
-    *** TODO: Figure out if you want to use this at all. Not necessary to use at first*** 
-
-    All input args. are at one scale
-
-    1. Project scene flow to optical flow
-    2. Warp reference image through optical flow
-    3. Photometric loss
-    """
-
-    optical_flow = projectSceneFlow2Flow(intrinsics, scene_flow, disparity)
-
-    warped_img = flow_warp(ref_img, optical_flow)
-    valid_pixels = 1 - (warped_img == 0).type_as(warped_img) # XXX: this seems fishy to me, what if there are pure black pixels
-    diff = (warped_img - ref_img) * valid_pixels
-    ssim_loss = _SSIM(ref_img, warped_img)
-
-    # if occlusion_mask:
-
-    photometric_loss = 0
-    ssim_loss = 0
-
-    return photometric_loss, ssim_loss
-
-# pretty sure this loss function doesn't make sense as an idea itself
-def motion_mask_consistency_loss(flow_f_s, flow_f_d, flow_b_s, flow_b_d,
-                                 rigidity_mask_f,
-                                 cam_motion_f, cam_motion_b,
-                                 disparity_l1, disparity_l2,
-                                 intrinsics,
-                                 use_occluded=False):
-    """ Consistency loss between motion mask and projected optical flow at one scale
-
-    In "static" regions of the image, the motion mask must be 0
-    In "dynamic" regions of the image, the motion mask must be 1
-    """
-
-    depth_l1 = _disp2depth_kitti_K(disparity_l1, intrinsics)
-
-    cam_flow_f = pose2flow(depth_l1, cam_motion_f, intrinsics, torch.inverse(intrinsics))
-
-    disp_occ_l1 = _adaptive_disocc_detection_disp(disparity_l1)
-    # disp_occ_l2 = _adaptive_disocc_detection_disp(disparity_l2)
-
-    if not use_occluded:
-        occ_map_f_s = _adaptive_disocc_detection(flow_b_s).detach() * disp_occ_l1
-        occ_map_f_d = _adaptive_disocc_detection(flow_b_d).detach() * disp_occ_l1
-        # occ_map_b_s = _adaptive_disocc_detection(flow_f_s).detach() * disp_occ_l2
-        # occ_map_b_d = _adaptive_disocc_detection(flow_f_d).detach() * disp_occ_l2
-        flow_f_s = flow_f_s * occ_map_f_s
-        flow_f_d = flow_f_s * occ_map_f_d
-        # flow_b_s = flow_b_s * occ_map_b_s
-        # flow_b_d = flow_b_d * occ_map_b_d
-
-    cam_diff_s = (flow_f_s - cam_flow_f).abs() * rigidity_mask_f # 0
-    cam_diff_d = (flow_f_d - cam_flow_f).abs() * (1- rigidity_mask_f) # 1
-
-    loss_static = torch.norm(cam_diff_s, p=2)
-    loss_dynamic = torch.norm(cam_diff_d, p=2)
-
-    loss = loss_static + loss_dynamic
-
-    return loss
+#     # loss = torch.norm((cam_flow_l - cam_flow_r), p=2, keepdim=True).mean()
+#     loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
+#     return loss
 
 ### Other losses
-def _reconstruction_error(tgt_img, ref_img_warped, ssim_w=None):
+def _reconstruction_error(tgt_img, ref_img_warped, ssim_w):
     diff = (_elementwise_l1(tgt_img, ref_img_warped) * (1.0 - ssim_w) +
                     _SSIM(tgt_img, ref_img_warped) * ssim_w).mean(dim=1, keepdim=True)
     return diff
-
-def weighted_binary_cross_entropy(output, target, weights=None):
-    """ Referenced from https://github.com/anuragranj/cc/blob/master/loss_functions.py
-
-    """
-    if weights is not None:
-        assert len(weights) == 2
-
-        loss = weights[1] * (target * torch.log(output + epsilon)) + \
-               weights[0] * ((1 - target) * torch.log(1 - output + epsilon))
-    else:
-        loss = target * torch.log(output + epsilon) + (1 - target) * torch.log(1 - output + epsilon)
-
-    return torch.neg(torch.mean(loss))
-
-def motion_mask_loss(ref, target):
-    return nn.functional.binary_cross_entropy(ref, target)
 
 ###############################################
 # Basic Module
@@ -415,8 +292,8 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                          disp_occ_l1, disp_occ_l2, 
                          k_l1_aug, k_l2_aug, 
                          k_r1_aug, k_r2_aug,
-                         img_l1_aug, img_l2_aug, 
-                         img_r1_aug, img_r2_aug,
+                         img_l1_aug, img_r1_aug,
+                         img_l2_aug, img_r2_aug,
                          motion_mask_f, motion_mask_b,
                          aug_size, ii):
 
@@ -438,21 +315,37 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         # egomotion consistency loss
         depth_l1 = disp2depth_kitti(disp_l1, k_l1_aug[:, 0, 0], baseline=self._args['baseline'])
         depth_r1 = _apply_disparity(depth_l1, disp_l1)
-
         cam_flow_l = pose2flow(depth_l1, cms_f[0], k_l1_aug, torch.inverse(k_l1_aug))
         cam_flow_r = pose2flow(depth_r1, cms_f[1], k_r1_aug, torch.inverse(k_r1_aug))
-
-        ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
+        #FIXME: THIS IS WRONG BECAUSE YOU NEED TO APPLY CAM2CAM TRANSFORMATION BEFORE COMPARING
+        ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean() 
 
         # induced static scene flow knowledge distillation loss
         static_scene_flow_consistency_diff = _elementwise_epe(cam_flow_l, sf_f)
         static_scene_flow_consistency_loss = static_scene_flow_consistency_diff[motion_mask_f]
 
+        # static reconstruction loss
+        # static_warp_l1_f = inverse_warp(img_l1_aug, depth_l1, cms_f[0], k_l1_aug, torch.inverse(k_l1_aug))
+        static_warp_l1_f = flow_warp(img_l1_aug, cam_flow_l)
+        static_warp_l1_error = _reconstruction_error(img_l2_aug, static_warp_l1_f, self._ssim_w)
+
+        cam_occ_map_f = _adaptive_disocc_detection(cam_flow_l)
+        cam_motion_reconstruction_loss = static_warp_l1_error[(1-motion_mask_f) * cam_occ_map_f].mean() 
+        
         # mask consensus loss
+        flow_f = projectSceneFlow2Flow(k_l1_aug, sf_f, disp_l1)
+        img_l2_reconstruction_error = _reconstruction_error(img_l2_aug, img_l1_warp, self._ssim_w)
+        target_mask = (cam_motion_reconstruction_loss <= img_l2_reconstruction_error).bool()
+        flow_diff = ((cam_flow_l - flow_f).abs() < 0.01).bool()
+        census_target_mask = target_mask | flow_diff
 
+        mask_consensus_loss = tf.binary_cross_entropy(motion_mask_f, census_target_mask)
 
-
-        loss = stereo_consistency_loss + ego_consistency_loss + static_scene_flow_consistency_loss
+        loss = torch.sum([stereo_consistency_loss, 
+                          ego_consistency_loss, 
+                          static_scene_flow_consistency_loss, 
+                          cam_motion_reconstruction_loss,
+                          mask_consensus_loss])
 
         return loss
 
@@ -518,6 +411,7 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                      _SSIM(img_l1_aug, img_l2_warp) * self._ssim_w).mean(dim=1, keepdim=True)
         img_diff2 = (_elementwise_l1(img_l2_aug, img_l1_warp) * (1.0 - self._ssim_w) +
                      _SSIM(img_l2_aug, img_l1_warp) * self._ssim_w).mean(dim=1, keepdim=True)
+
         loss_im1 = img_diff1[occ_map_f].mean()
         loss_im2 = img_diff2[occ_map_b].mean()
 
