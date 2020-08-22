@@ -156,6 +156,7 @@ cx = width / 2
 cy = height / 2
 
 intrinsics = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1]])
+cam2cam = np.hstack([np.eye(3), (np.array([1.5, 0, 0]) + (camera_origins['6R']/1000) - (camera_origins['6L']/1000)).reshape(-1, 1)])
 
 def process_images_batch(image_tag_pairs, stereo=True, rgb=True):
     if rgb == 0:
@@ -196,7 +197,9 @@ def add_cameras(bp, vehicle, world):
     cc = carla.ColorConverter.Raw
     actor_list = []
     for k,v in camera_origins.items():
-        camera_transform = carla.Transform(carla.Location(x=1.5+v[0][0]/1000, y=v[0][1]/1000, z=2.4), carla.Rotation(pitch=0,roll=0,yaw = v[1]))
+        location = carla.Location(x=1.5+v[0][0]/1000, y=v[0][1]/1000, z=2.4)
+        rotation = carla.Rotation(pitch=0,roll=0,yaw = v[1])
+        camera_transform = carla.Transform(location, rotation)
         camera_ = world.spawn_actor(bp, camera_transform, attach_to=vehicle)
 
         actor_list.append((k,camera_))
@@ -221,10 +224,10 @@ def main():
     logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
 
     save_root_dir = '/external/datasets/carla_stereo/'
-    world_name = 'Town03'
+    world_name = 'Town04'
 
-    np.savetxt(os.path.join(save_root_dir + world_name, 'intrinsics.txt'), intrinsics.flatten())
-    np.savetxt(os.path.join(save_root_dir + world_name, 'left2right.txt'), intrinsics.flatten())
+    np.savetxt(os.path.join(save_root_dir + world_name, 'intrinsics.txt'), intrinsics)
+    np.savetxt(os.path.join(save_root_dir + world_name, 'cam2cam.txt'), cam2cam)
 
     try:
         print("Available maps: ", client.get_available_maps())

@@ -15,8 +15,7 @@ from .common import kitti_crop_image_list, kitti_adjust_intrinsic
 
 class CarlaDataset(data.Dataset):
     def __init__(self,
-                 args,
-                 images_root=None,
+                 args, data_root,
                  flip_augmentations=True,
                  preprocessing_crop=True,
                  crop_size=[370, 1224],
@@ -28,14 +27,19 @@ class CarlaDataset(data.Dataset):
         self._flip_augmentations = flip_augmentations
         self._preprocessing_crop = preprocessing_crop
         self._crop_size = crop_size
+        self._sequences = ['Town01', 'Town02', 'Town03']
+        self._cam2cams = torch.from_numpy(np.loadtxt(os.path.join(data_root, 'cam2cam.txt')))
+        if 'baseline' in args:
+            self._baseline = args['baseline']
+        else:
+            self._baseline = 0.075
         
         self._image_list = []
         self._pose_list = []
-        self._intrinsics = torch.from_numpy(np.loadtxt(os.path.join(images_root, 'intrinsics.txt'))).float()
+        self._intrinsics = torch.from_numpy(np.loadtxt(os.path.join(data_root, 'intrinsics.txt'))).float()
         
-        view1 = os.path.join(images_root, 'left')
-        view2 = os.path.join(images_root, 'right')
-        poses = os.path.join(images_root, 'poses')
+        views = [os.path.join(data_root, 'left'), os.path.join(data_root, 'right')]
+        poses = os.path.join(data_root, 'poses')
         
         ext_dict = {
             'rgb': '.png',
@@ -62,7 +66,7 @@ class CarlaDataset(data.Dataset):
             'input_k_r1'
         ]
         
-        num_imgs = len(os.listdir(os.path.join(view1, 'rgb')))
+        num_imgs = len(os.listdir(os.path.join(views[0], 'rgb')))
         
         for idx in range(num_imgs-1):
             idx_tgt = str(idx+1)
@@ -72,10 +76,10 @@ class CarlaDataset(data.Dataset):
             file_num_tgt = '0' * (6 - len(idx_tgt)) + idx_tgt
             for sensor, ext in ext_dict.items():
                 if sensor == 'poses':
-                    paths.append(os.path.join(images_root, sensor, f"{sensor}_{file_num+ext}"))
-                    paths.append(os.path.join(images_root, sensor, f"{sensor}_{file_num_tgt+ext}"))
+                    paths.append(os.path.join(poses, f"{sensor}_{file_num+ext}"))
+                    paths.append(os.path.join(poses, f"{sensor}_{file_num_tgt+ext}"))
                 else:
-                    for view in [view1, view2]:
+                    for view in views:
                         paths.append(os.path.join(view, sensor, f"{sensor}_{file_num+ext}"))
                         paths.append(os.path.join(view, sensor, f"{sensor}_{file_num_tgt+ext}"))
             self._image_list.append(paths)
