@@ -40,7 +40,7 @@ class CarlaDataset(data.Dataset):
         
         views = [os.path.join(data_root, 'left'), os.path.join(data_root, 'right')]
         poses = os.path.join(data_root, 'poses')
-        
+
         ext_dict = {
             'rgb': '.png',
             'depth': '.tif',
@@ -63,7 +63,9 @@ class CarlaDataset(data.Dataset):
             'seg_r2',
             'ego_trans',
             'input_k_l1',
-            'input_k_r1'
+            'input_k_r1',
+            'input_k_l2',
+            'input_k_r2'
         ]
         
         num_imgs = len(os.listdir(os.path.join(views[0], 'rgb')))
@@ -115,8 +117,16 @@ class CarlaDataset(data.Dataset):
         pose_1 = self.read_pose(self._image_list[index][-2])
         pose_2 = self.read_pose(self._image_list[index][-1])
         ego_trans = torch.from_numpy(np.dot(pose_2, np.linalg.inv(pose_1)))
-        data.extend([ego_trans, k_l1, k_r1])
+        data.extend([ego_trans, k_l1, k_r1, k_l1.clone(), k_r1.clone()])
         output_dict = {key: val for key, val in zip(self._output_keys, data)}
+
+        common_dict = {
+            'baseline': 0.075,
+            'input_size': input_im_size
+        }
+
+        output_dict.update(common_dict)
+
         return output_dict
 
     def read_pose(self, path):

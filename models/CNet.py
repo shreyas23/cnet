@@ -1,5 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
+from sys import exit
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as tf
@@ -315,7 +317,13 @@ class CNet(nn.Module):
 
         # Left
         output_dict = self.run_pwc(
-            input_dict, input_dict['input_l1_aug'], input_dict['input_l2_aug'], input_dict['input_k_l1_aug'], input_dict['input_k_l2_aug'])
+            input_dict, 
+            input_dict['input_l1_aug'], 
+            input_dict['input_l2_aug'], 
+            input_dict['input_r1_aug'], 
+            input_dict['input_r2_aug'], 
+            input_dict['input_k_l1_aug'], 
+            input_dict['input_k_l2_aug'])
 
         # Right
         # ss: train val

@@ -331,10 +331,18 @@ class Augmentation_SceneFlow(Augmentation_ScaleCrop):
         # --------------------------------------------------------
         # Param init
         # --------------------------------------------------------
-        im_l1 = example_dict["input_l1"]
-        im_l2 = example_dict["input_l2"]
-        im_r1 = example_dict["input_r1"]
-        im_r2 = example_dict["input_r2"]
+        im_l1 = example_dict["rgb_l1"]
+        im_l2 = example_dict["rgb_l2"]
+        im_r1 = example_dict["rgb_r1"]
+        im_r2 = example_dict["rgb_r2"]
+        seg_l1 = example_dict["seg_l1"]
+        seg_l2 = example_dict["seg_l2"]
+        seg_r1 = example_dict["seg_r1"]
+        seg_r2 = example_dict["seg_r2"]
+        depth_l1 = example_dict["depth_l1"]
+        depth_l2 = example_dict["depth_l2"]
+        depth_r1 = example_dict["depth_r1"]
+        depth_r2 = example_dict["depth_r2"]
         k_l1 = example_dict["input_k_l1"].clone()
         k_l2 = example_dict["input_k_l2"].clone()
         k_r1 = example_dict["input_k_r1"].clone()
@@ -353,6 +361,14 @@ class Augmentation_SceneFlow(Augmentation_ScaleCrop):
         im_l2 = tf.grid_sample(im_l2, coords)
         im_r1 = tf.grid_sample(im_r1, coords)
         im_r2 = tf.grid_sample(im_r2, coords)
+        seg_l1 = tf.grid_sample(seg_l1, coords)
+        seg_l2 = tf.grid_sample(seg_l2, coords)
+        seg_r1 = tf.grid_sample(seg_r1, coords)
+        seg_r2 = tf.grid_sample(seg_r2, coords)
+        depth_l1 = tf.grid_sample(depth_l1, coords)
+        depth_l2 = tf.grid_sample(depth_l2, coords)
+        depth_r1 = tf.grid_sample(depth_r1, coords)
+        depth_r2 = tf.grid_sample(depth_r2, coords)
 
         # Augment intrinsic matrix
         k_list = [k_l1.unsqueeze(1), k_l2.unsqueeze(
@@ -379,6 +395,16 @@ class Augmentation_SceneFlow(Augmentation_ScaleCrop):
         example_dict["input_l2_aug"] = im_l2
         example_dict["input_r1_aug"] = im_r1
         example_dict["input_r2_aug"] = im_r2
+
+        example_dict["seg_l1"] = seg_l1
+        example_dict["seg_l2"] = seg_l2
+        example_dict["seg_r1"] = seg_r1
+        example_dict["seg_r2"] = seg_r2
+
+        example_dict["depth_l1"] = depth_l1
+        example_dict["depth_l2"] = depth_l2
+        example_dict["depth_r1"] = depth_r1
+        example_dict["depth_r2"] = depth_r2
 
         example_dict["input_k_l1_aug"] = k_l1
         example_dict["input_k_l2_aug"] = k_l2
