@@ -60,7 +60,7 @@ class CNet(nn.Module):
             dynamic_layer_sf = MonoSceneFlowDecoder(num_ch_in)
 
             mask_decoder = MaskNetDecoder(num_ch_in_mask)
-            cam_motion_decoder = CameraMotionDecoder(self.dim_corr + ch + 32)
+            cam_motion_decoder = CameraMotionDecoder(self.dim_corr + ch + 32 + 32)
 
             self.static_flow_estimators.append(static_layer_sf)
             self.dynamic_flow_estimators.append(dynamic_layer_sf)
@@ -95,16 +95,18 @@ class CNet(nn.Module):
         rigidity_masks_f = []
         rigidity_masks_b = []
 
-        cam_motions_f = []
-        cam_motions_b = []
+        cam_motions_f_l = []
+        cam_motions_f_r = []
+        cam_motions_b_l = []
+        cam_motions_b_r = []
 
-        disps_1 = []
-        disps_1_s = []
-        disps_1_d = []
+        disps_l1 = []
+        disps_l1_s = []
+        disps_l1_d = []
 
-        disps_2 = []
-        disps_2_s = []
-        disps_2_d = []
+        disps_l2 = []
+        disps_l2_s = []
+        disps_l2_d = []
 
         for l, (x1, x2) in enumerate(zip(x1_pyramid, x2_pyramid)):
 
@@ -227,19 +229,21 @@ class CNet(nn.Module):
                 sceneflows_b_s.append(flow_b_s)
                 sceneflows_b_d.append(flow_b_d)
 
-                disps_1.append(disp_l1)
-                disps_1_s.append(disp_l1_s)
-                disps_1_d.append(disp_l1_d)
+                disps_l1.append(disp_l1)
+                disps_l1_s.append(disp_l1_s)
+                disps_l1_d.append(disp_l1_d)
 
-                disps_2.append(disp_l2)
-                disps_2_s.append(disp_l2_s)
-                disps_2_d.append(disp_l2_d)
+                disps_l2.append(disp_l2)
+                disps_l2_s.append(disp_l2_s)
+                disps_l2_d.append(disp_l2_d)
 
                 rigidity_masks_f.append(rigidity_mask_fwd)
                 rigidity_masks_b.append(rigidity_mask_bwd)
 
-                cam_motions_f.append(cam_motion_f)
-                cam_motions_b.append(cam_motion_b)
+                cam_motions_f_l.append(cam_motion_f_l)
+                cam_motions_f_r.append(cam_motion_f_r)
+                cam_motions_b_l.append(cam_motion_b_l)
+                cam_motions_b_r.append(cam_motion_b_r)
 
             else:
                 # TODO: could feed in decomposed flow here instead
@@ -261,19 +265,21 @@ class CNet(nn.Module):
                 sceneflows_b_s.append(flow_b_s)
                 sceneflows_b_d.append(flow_b_d)
 
-                disps_1.append(disp_l1)
-                disps_1_s.append(disp_l1_s)
-                disps_1_d.append(disp_l1_d)
+                disps_l1.append(disp_l1)
+                disps_l1_s.append(disp_l1_s)
+                disps_l1_d.append(disp_l1_d)
 
-                disps_2.append(disp_l2)
-                disps_2_s.append(disp_l2_s)
-                disps_2_d.append(disp_l2_d)
+                disps_l2.append(disp_l2)
+                disps_l2_s.append(disp_l2_s)
+                disps_l2_d.append(disp_l2_d)
 
                 rigidity_masks_f.append(rigidity_mask_fwd)
                 rigidity_masks_b.append(rigidity_mask_bwd)
 
-                cam_motions_f.append(cam_motion_f)
-                cam_motions_b.append(cam_motion_b)
+                cam_motions_f_l.append(cam_motion_f_l)
+                cam_motions_f_r.append(cam_motion_f_r)
+                cam_motions_b_l.append(cam_motion_b_l)
+                cam_motions_b_r.append(cam_motion_b_r)
                 break
 
         x1_rev = x1_pyramid[::-1]
@@ -296,8 +302,10 @@ class CNet(nn.Module):
         output_dict['rigidity_f'] = upsample_outputs_as(rigidity_masks_f[::-1], x1_rev)
         output_dict['rigidity_b'] = upsample_outputs_as(rigidity_masks_b[::-1], x1_rev)
 
-        output_dict['cam_motions_f'] = cam_motions_f[::-1]
-        output_dict['cam_motions_b'] = cam_motions_b[::-1]
+        output_dict['cms_f_l'] = cam_motions_f_l[::-1]
+        output_dict['cms_f_r'] = cam_motions_f_r[::-1]
+        output_dict['cms_b_l'] = cam_motions_b_l[::-1]
+        output_dict['cms_b_r'] = cam_motions_b_r[::-1]
 
         return output_dict
 

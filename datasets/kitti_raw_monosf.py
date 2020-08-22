@@ -85,6 +85,9 @@ class CarlaDataset(data.Dataset):
             self._image_list.append(paths)
         
         self._size = len(self._image_list)
+    
+    def __len__(self):
+        return self._size
         
     def __getitem__(self, index):
         index %= self._size
@@ -93,7 +96,7 @@ class CarlaDataset(data.Dataset):
         data = [imread(path) for path in self._image_list[index][:-2]]
         h_orig, w_orig, _ = data[0].shape
         input_im_size = torch.from_numpy(np.array([h_orig, w_orig])).float()
-        
+
         # cropping 
         if self._preprocessing_crop:
             # get starting positions
