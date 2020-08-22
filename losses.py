@@ -277,7 +277,9 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         super(Loss_SceneFlow_SemiSup, self).__init__()
 
         self._args = args
-        self._weights = [4.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] # last three
+        self._weights = [4.0, 2.0, 1.0, 1.0, 1.0]
+        # [stereo_consistency_loss, ego_consistency_loss, static_scene_flow_consistency_loss, cam_motion_reconstruction_loss, mask_consensus_loss]
+        self._consistency_weights = [1.0, 1.0, 1.0, 1.0, 1.0]
         self._ssim_w = 0.85
         self._disp_smooth_w = 0.1
         self._sf_3d_pts = 0.2
@@ -294,8 +296,7 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                          k_r1_aug, k_r2_aug,
                          img_l1_aug, img_r1_aug,
                          img_l2_aug, img_r2_aug,
-                         motion_mask_f, motion_mask_b,
-                         aug_size, ii):
+                         motion_mask_f, motion_mask_b):
 
         # cross term image reconstruction loss
         cross_warp_img_f = _apply_disparity(img_l1_warp, disp_l2)
@@ -315,9 +316,12 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         # egomotion consistency loss
         depth_l1 = disp2depth_kitti(disp_l1, k_l1_aug[:, 0, 0], baseline=self._args['baseline'])
         depth_r1 = _apply_disparity(depth_l1, disp_l1)
-        cam_flow_l = pose2flow(depth_l1, cms_f[0], k_l1_aug, torch.inverse(k_l1_aug))
+
+        # apply left2right transformation for left cam so we can compare
+        cms_f_warp = torch.matmul(pose_vec2mat(cms_f[0]), self._args['l2r_translation'])
+        cam_flow_l = pose2flow(depth_l1, cms_f_warp, k_l1_aug, torch.inverse(k_l1_aug))
         cam_flow_r = pose2flow(depth_r1, cms_f[1], k_r1_aug, torch.inverse(k_r1_aug))
-        #FIXME: THIS IS WRONG BECAUSE YOU NEED TO APPLY CAM2CAM TRANSFORMATION BEFORE COMPARING
+
         ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean() 
 
         # induced static scene flow knowledge distillation loss
@@ -341,13 +345,7 @@ class Loss_SceneFlow_SemiSup(nn.Module):
 
         mask_consensus_loss = tf.binary_cross_entropy(motion_mask_f, census_target_mask)
 
-        loss = torch.sum([stereo_consistency_loss, 
-                          ego_consistency_loss, 
-                          static_scene_flow_consistency_loss, 
-                          cam_motion_reconstruction_loss,
-                          mask_consensus_loss])
-
-        return loss
+        return stereo_consistency_loss, ego_consistency_loss, static_scene_flow_consistency_loss, cam_motion_reconstruction_loss, mask_consensus_loss
 
     def depth_loss_left_img(self, disp_l, disp_r, img_l_aug, img_r_aug, ii):
 
@@ -419,8 +417,17 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         img_diff2[~occ_map_b].detach_()
         loss_im = loss_im1 + loss_im2
 
-        loss_consistency = self.consistency_loss()
-
+        losses_consistency = self.consistency_loss(img_l1_warp, img_l2_warp, 
+                                                   sf_f, sf_b,
+                                                   cms_f, cms_b,
+                                                   disp_l1, disp_l2,
+                                                   occ_map_f, occ_map_b,
+                                                   disp_occ_l1, disp_occ_l2,
+                                                   k_l1_aug, k_l2_aug,
+                                                   k_r1_aug, k_r2_aug,
+                                                   img_l1_aug, img_r1_aug,
+                                                   img_l2_aug, img_r2_aug,
+                                                   motion_mask_f, motion_mask_b)
 
         # Point reconstruction Loss
         pts_norm1 = torch.norm(pts1, p=2, dim=1, keepdim=True)
@@ -445,7 +452,7 @@ class Loss_SceneFlow_SemiSup(nn.Module):
 
         # Loss Summnation
         sceneflow_loss = loss_im + self._sf_3d_pts * \
-            loss_pts + self._sf_3d_sm * loss_3d_s
+            loss_pts + self._sf_3d_sm * loss_3d_s + loss_consistency
 
         return sceneflow_loss, loss_im, loss_pts, loss_3d_s
 
@@ -498,7 +505,7 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                 (loss_disp_l1 + loss_disp_l2) * self._weights[ii]
 
             # Sceneflow Loss
-            loss_sceneflow, loss_im, loss_pts, loss_3d_s = self.sceneflow_loss(sf_f, sf_b,
+            loss_sceneflow, loss_im, loss_pts, loss_3d_s, loss_consistency = self.sceneflow_loss(sf_f, sf_b,
                                                                                disp_l1, disp_l2,
                                                                                disp_occ_l1, disp_occ_l2,
                                                                                k_l1_aug, k_l2_aug,
@@ -506,7 +513,8 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                                                                                aug_size, ii)
 
             # consistency loss
-            loss_consistency, loss_static_reconstruction, loss_ego
+            #loss_consistency = torch.sum([w * loss for w, loss in zip(self._consistency_weights, losses_consistency)])
+            # TODO: wtf is going on with ii
 
             loss_sf_sum = loss_sf_sum + loss_sceneflow * self._weights[ii]
             loss_sf_2d = loss_sf_2d + loss_im

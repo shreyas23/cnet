@@ -223,7 +223,8 @@ def main():
     save_root_dir = '/external/datasets/carla_stereo/'
     world_name = 'Town03'
 
-    np.savetxt(os.path.join(save_root_dir + world_name, 'intrinsics.txt'), intrinsics)
+    np.savetxt(os.path.join(save_root_dir + world_name, 'intrinsics.txt'), intrinsics.flatten())
+    np.savetxt(os.path.join(save_root_dir + world_name, 'left2right.txt'), intrinsics.flatten())
 
     try:
         print("Available maps: ", client.get_available_maps())
