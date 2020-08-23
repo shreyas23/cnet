@@ -304,7 +304,11 @@ class CNet(nn.Module):
             sceneflows_b_d[::-1], x1_rev)
 
         output_dict['disp_l1'] = upsample_outputs_as(disps_l1[::-1], x1_rev)
+        output_dict['disp_l1_s'] = upsample_outputs_as(disps_l1_s[::-1], x1_rev)
+        output_dict['disp_l1_d'] = upsample_outputs_as(disps_l1_d[::-1], x1_rev)
         output_dict['disp_l2'] = upsample_outputs_as(disps_l2[::-1], x1_rev)
+        output_dict['disp_l2_s'] = upsample_outputs_as(disps_l2_s[::-1], x1_rev)
+        output_dict['disp_l2_d'] = upsample_outputs_as(disps_l2_d[::-1], x1_rev)
 
         output_dict['rigidity_f'] = upsample_outputs_as(rigidity_masks_f[::-1], x1_rev)
         output_dict['rigidity_b'] = upsample_outputs_as(rigidity_masks_b[::-1], x1_rev)
@@ -331,6 +335,8 @@ class CNet(nn.Module):
             input_dict['input_k_l2_aug'],
             input_dict['input_k_r1_aug'],
             input_dict['input_k_r2_aug'])
+
+        print(output_dict.keys())
 
         # Right
         # ss: train val

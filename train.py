@@ -22,36 +22,37 @@ parser.add_argument('--dropout', type=bool, default=False, help='dropout for reg
 parser.add_argument('--num_pyramid_levels', type=int, default=6, help='number of pyramid feature levels')
 parser.add_argument('--resume', action='store_true', help='resume from checkpoint (using experiment name)')
 
+
 def main():
-    args  = parser.parse_args()
+  args  = parser.parse_args()
 
-    # load the dataset/dataloader
-    dataset = None
-    dataloader = None
+  # load the dataset/dataloader
+  dataset = None
+  dataloader = None
 
-    # load the model
-    model = None
+  # load the model
+  model = None
 
-    # load the augmentations
-    augmentations = None
+  # load the augmentations
+  augmentations = None
 
-    # load the optimizer
-    optimizer = None
-    
+  # load the optimizer
+  optimizer = None
+
     # run training loop
-    for epoch in range(args.epochs):
-      print(f"Training epoch: {epoch + 1}")
-      train_one_epoch(model, dataloader, optimizer, augmentations)
-      continue
+  for epoch in range(args.epochs):
+    print(f"Training epoch: {epoch + 1}")
+    train_one_epoch(model, dataloader, optimizer, augmentations)
 
     return
+
+def step()
 
 def train_one_epoch(model, dataloader, optimizer, augmentations):
 
   model.train()
 
   for i, data in enumerate(dataloader):
-    loss = torch.scalar_tensor(0) 
 
     # caclulate gradients and then do Adam step
     optimizer.zero_grad()

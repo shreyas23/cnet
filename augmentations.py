@@ -396,15 +396,15 @@ class Augmentation_SceneFlow(Augmentation_ScaleCrop):
         example_dict["input_r1_aug"] = im_r1
         example_dict["input_r2_aug"] = im_r2
 
-        example_dict["seg_l1"] = seg_l1
-        example_dict["seg_l2"] = seg_l2
-        example_dict["seg_r1"] = seg_r1
-        example_dict["seg_r2"] = seg_r2
+        example_dict["target_seg_l1"] = seg_l1
+        example_dict["target_seg_l2"] = seg_l2
+        example_dict["target_seg_r1"] = seg_r1
+        example_dict["target_seg_r2"] = seg_r2
 
-        example_dict["depth_l1"] = depth_l1
-        example_dict["depth_l2"] = depth_l2
-        example_dict["depth_r1"] = depth_r1
-        example_dict["depth_r2"] = depth_r2
+        example_dict["target_depth_l1"] = depth_l1
+        example_dict["target_depth_l2"] = depth_l2
+        example_dict["target_depth_r1"] = depth_r1
+        example_dict["target_depth_r2"] = depth_r2
 
         example_dict["input_k_l1_aug"] = k_l1
         example_dict["input_k_l2_aug"] = k_l2
