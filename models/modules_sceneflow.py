@@ -176,8 +176,8 @@ class CameraMotionDecoder(nn.Module):
             conv(conv_chs[4], conv_chs[5], stride=1),
         )
 
-    def forward(self, pyr_feat_ref, pyr_feat_tgt):
-        x = self.convs(torch.cat([pyr_feat_ref, pyr_feat_tgt], dim=1))
+    def forward(self, pyr_feat):
+        x = self.convs(pyr_feat)
         motion_pred = x.mean(3).mean(2) * 0.01
         return x, motion_pred.squeeze()
 

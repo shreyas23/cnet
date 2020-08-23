@@ -126,6 +126,12 @@ class CNet(nn.Module):
                 flow_b = interpolate2d_as(flow_b, x1, mode="bilinear")
                 disp_l1 = interpolate2d_as(disp_l1, x1, mode="bilinear")
                 disp_l2 = interpolate2d_as(disp_l2, x1, mode="bilinear")
+
+                cm_feats_f_l = interpolate2d_as(cm_feats_f_l, x1, mode="bilinear")
+                cm_feats_f_r = interpolate2d_as(cm_feats_f_r, x1, mode="bilinear")
+                cm_feats_b_l = interpolate2d_as(cm_feats_b_l, x1, mode="bilinear")
+                cm_feats_b_r = interpolate2d_as(cm_feats_b_r, x1, mode="bilinear")
+
                 x1_out = self.upconv_layers[level-1](x1_out)
                 x2_out = self.upconv_layers[level-1](x2_out)
                 # becuase K can be changing when doing augmentation
@@ -197,21 +203,22 @@ class CNet(nn.Module):
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
                 cm_feats_f_l, cm_f_l = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_f, x1, x2, x1_out_s, cm_f_l], dim=1))
+                    torch.cat([out_corr_relu_f, x1, x2, x1_out_s, cm_feats_f_l], dim=1))
                 cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s, cm_f_r], dim=1))
+                    torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s, cm_feats_f_r], dim=1))
                 cm_feats_b_l, cm_b_l = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_b, x2, x1, x2_out_s, cm_b_l], dim=1))
+                    torch.cat([out_corr_relu_b, x2, x1, x2_out_s, cm_feats_b_l], dim=1))
                 cm_feats_b_r, cm_b_r = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_b_r, r2, r1, x2_out_s, cm_b_r], dim=1))
+                    torch.cat([out_corr_relu_b_r, r2, r1, x2_out_s, cm_feats_b_r], dim=1))
 
                 mask_f_l, mask_f_l_upsampled = self.mask_decoders[level](
-                    torch.cat([out_corr_relu_f, x1, x2, x1_out], dim=1))
+                    torch.cat([out_corr_relu_f, x1, x2, x1_out, mask_f_l_upsampled], dim=1))
                 mask_b_l, mask_b_l_upsampled = self.mask_decoders[level](
-                    torch.cat([out_corr_relu_b, x2, x1, x2_out], dim=1))
+                    torch.cat([out_corr_relu_b, x2, x1, x2_out, mask_b_l_upsampled], dim=1))
 
                 flow_f_res = apply_rigidity_mask(flow_f_s_res, flow_f_d_res, mask_f_l)
                 flow_b_res = apply_rigidity_mask(flow_b_s_res, flow_b_d_res, mask_b_l)
+
                 disp_l1 = apply_rigidity_mask(disp_l1_s, disp_l1_d, mask_f_l)
                 disp_l2 = apply_rigidity_mask(disp_l2_s, disp_l2_d, mask_b_l)
 
@@ -334,18 +341,52 @@ class CNet(nn.Module):
             k_r1_flip = input_dict["input_k_r1_flip_aug"]
             k_r2_flip = input_dict["input_k_r2_flip_aug"]
 
+            input_l1_flip = torch.flip(input_dict['input_l1_aug'], [3])
+            input_l2_flip = torch.flip(input_dict['input_l2_aug'], [3])
+            k_l1_flip = input_dict["input_k_l1_flip_aug"]
+            k_l2_flip = input_dict["input_k_l2_flip_aug"]
+
             output_dict_r = self.run_pwc(
-                input_dict, input_r1_flip, input_r2_flip, k_r1_flip, k_r2_flip)
+                input_dict,
+                input_l1_flip, input_l2_flip,
+                input_r1_flip, input_r2_flip,
+                k_l1_flip, k_l2_flip, k_r1_flip, k_r2_flip)
 
             for ii in range(0, len(output_dict_r['flow_f'])):
                 output_dict_r['flow_f'][ii] = flow_horizontal_flip(
-                    output_dict_r['flow_f'][ii])
+                  output_dict_r['flow_f'][ii])
+                output_dict_r['flow_f_s'][ii] = flow_horizontal_flip(
+                  output_dict_r['flow_f_s'][ii])
+                output_dict_r['flow_f_d'][ii] = flow_horizontal_flip(
+                  output_dict_r['flow_f_d'][ii])
+
                 output_dict_r['flow_b'][ii] = flow_horizontal_flip(
-                    output_dict_r['flow_b'][ii])
+                  output_dict_r['flow_b'][ii])
+                output_dict_r['flow_b_s'][ii] = flow_horizontal_flip(
+                  output_dict_r['flow_b_s'][ii])
+                output_dict_r['flow_b_d'][ii] = flow_horizontal_flip(
+                  output_dict_r['flow_b_d'][ii])
+
                 output_dict_r['disp_l1'][ii] = torch.flip(
-                    output_dict_r['disp_l1'][ii], [3])
+                  output_dict_r['disp_l1'][ii], [3])
+                output_dict_r['disp_l1_s'][ii] = torch.flip(
+                  output_dict_r['disp_l1_s'][ii], [3])
+                output_dict_r['disp_l1_d'][ii] = torch.flip(
+                  output_dict_r['disp_l1_d'][ii], [3])
+
                 output_dict_r['disp_l2'][ii] = torch.flip(
-                    output_dict_r['disp_l2'][ii], [3])
+                  output_dict_r['disp_l2'][ii], [3])
+                output_dict_r['disp_l2_s'][ii] = torch.flip(
+                  output_dict_r['disp_l2_s'][ii], [3])
+                output_dict_r['disp_l2_d'][ii] = torch.flip(
+                  output_dict_r['disp_l2_d'][ii], [3])
+
+                output_dict_r['rigidity_f'][ii] = torch.flip(
+                  output_dict_r['rigidity_f'][ii], [3])
+                output_dict_r['rigidity_b'][ii] = torch.flip(
+                  output_dict_r['rigidity_b'][ii], [3])
+
+                # TODO: need to reverse cam motion parameters as well
 
             output_dict['output_dict_r'] = output_dict_r
 
@@ -353,7 +394,6 @@ class CNet(nn.Module):
         # ss:           eval
         # ft: train val eval
         if self._args['evaluation'] or self._args['finetuning']:
-
             input_l1_flip = torch.flip(input_dict['input_l1_aug'], [3])
             input_l2_flip = torch.flip(input_dict['input_l2_aug'], [3])
             k_l1_flip = input_dict["input_k_l1_flip_aug"]
