@@ -7,13 +7,12 @@ import torch.nn.functional as tf
 from models.forwardwarp_package.forward_warp import forward_warp
 from utils.interpolation import interpolate2d_as
 from utils.sceneflow_util import pixel2pts_ms, pts2pixel_ms, reconstructImg, reconstructPts, projectSceneFlow2Flow
-from utils.monodepth_eval import compute_errors, compute_d1_all
+from utils.monodepth_eval import compute_errors
 from models.modules_sceneflow import WarpingLayer_Flow
 
 from utils.sceneflow_util import disp2depth_kitti
 
-from utils.inverse_warp import inverse_warp, flow_warp, pose2flow, pose_vec2mat
-from ssim import ssim
+from utils.inverse_warp import flow_warp, pose2flow, pose_vec2mat
 
 epsilon = 1e-8
 
@@ -60,15 +59,15 @@ epsilon = 1e-8
 
 #     # project scene flow to optical flow
 #     static_optical_flows_fwd = [projectSceneFlow2Flow(K, static_sceneflow_fwd, disparity) 
-#                                 for (K, static_sceneflow_fwd, disparity) in zip(intrinsics, static_flows_fwd, disparities)]
+#         for (K, static_sceneflow_fwd, disparity) in zip(intrinsics, static_flows_fwd, disparities)]
 #     static_flow_f = projectSceneFlow2Flow(intrinsc)
-    
+
 #     # warp reference imgs
 #     cam_warped_img_f = flow_warp(ref_img, cam_flow_f)
 #     cam_warped_imgs_fwd  = torch.cat([flow_warp(ref_img, cam_flows_fwd) for i in range(num_views)], dim=0)
 #     flow_warped_imgs_fwd = torch.cat([flow_warp(ref_img, static_optical_flows_fwd) for i in range(num_views)], dim=0)
 
-#     # TODO: extract valid pixels 
+#     # TODO: extract valid pixels
 #     cam_valids = torch.cat([torch.ones_like(warped_img) for warped_img in cam_warped_imgs_fwd], dim=0)
 #     flow_valids = torch.cat([torch.ones_like(warped_img) for warped_img in flow_warped_imgs_fwd], dim=0)
 
@@ -81,7 +80,6 @@ epsilon = 1e-8
 #     census_target_masks = target_masks | flow_diff
 
 #     loss = tf.binary_cross_entropy(motion_masks, census_target_masks, reduction='none').mean()
-    
 #     return loss
 
 # # done
@@ -97,10 +95,12 @@ epsilon = 1e-8
 #     loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean()
 #     return loss
 
-### Other losses
+# Other losses
+
+
 def _reconstruction_error(tgt_img, ref_img_warped, ssim_w):
     diff = (_elementwise_l1(tgt_img, ref_img_warped) * (1.0 - ssim_w) +
-                    _SSIM(tgt_img, ref_img_warped) * ssim_w).mean(dim=1, keepdim=True)
+            _SSIM(tgt_img, ref_img_warped) * ssim_w).mean(dim=1, keepdim=True)
     return diff
 
 ###############################################
@@ -278,7 +278,6 @@ class Loss_SceneFlow_SemiSup(nn.Module):
 
         self._args = args
         self._weights = [4.0, 2.0, 1.0, 1.0, 1.0]
-        # [stereo_consistency_loss, ego_consistency_loss, static_scene_flow_consistency_loss, cam_motion_reconstruction_loss, mask_consensus_loss]
         self._consistency_weights = [1.0, 1.0, 1.0, 1.0, 1.0]
         self._ssim_w = 0.85
         self._disp_smooth_w = 0.1
@@ -286,13 +285,13 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         self._sf_3d_sm = 200
 
     def consistency_loss(self, 
-                         img_l1_warp, img_l2_warp, # l2 reconstructed, l1 reconstructed
-                         sf_f, sf_b, 
-                         cms_f, cms_b, # cms: [left, right]
-                         disp_l1, disp_l2, 
+                         img_l1_warp, img_l2_warp,  # l2 reconstructed, l1 reconstructed
+                         sf_f, sf_b,
+                         cms_f, cms_b,  # cms: [left, right]
+                         disp_l1, disp_l2,
                          occ_map_f, occ_map_b,
-                         disp_occ_l1, disp_occ_l2, 
-                         k_l1_aug, k_l2_aug, 
+                         disp_occ_l1, disp_occ_l2,
+                         k_l1_aug, k_l2_aug,
                          k_r1_aug, k_r2_aug,
                          img_l1_aug, img_r1_aug,
                          img_l2_aug, img_r2_aug,
@@ -318,15 +317,24 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         depth_r1 = _apply_disparity(depth_l1, disp_l1)
 
         # apply left2right transformation for left cam so we can compare
-        cms_f_warp = torch.matmul(pose_vec2mat(cms_f[0]), self._args['l2r_translation'])
-        cam_flow_l = pose2flow(depth_l1, cms_f_warp, k_l1_aug, torch.inverse(k_l1_aug))
-        cam_flow_r = pose2flow(depth_r1, cms_f[1], k_r1_aug, torch.inverse(k_r1_aug))
+        cms_f_warp = torch.matmul(pose_vec2mat(cms_f[0]),
+                                  self._args['l2r_translation'])
+        cam_flow_l = pose2flow(depth_l1,
+                               cms_f_warp,
+                               k_l1_aug,
+                               torch.inverse(k_l1_aug))
+
+        cam_flow_r = pose2flow(depth_r1,
+                               cms_f[1],
+                               k_r1_aug,
+                               torch.inverse(k_r1_aug))
 
         ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean() 
 
         # induced static scene flow knowledge distillation loss
         static_scene_flow_consistency_diff = _elementwise_epe(cam_flow_l, sf_f)
-        static_scene_flow_consistency_loss = static_scene_flow_consistency_diff[motion_mask_f]
+        static_scene_flow_consistency_loss = \
+            static_scene_flow_consistency_diff[motion_mask_f]
 
         # static reconstruction loss
         # static_warp_l1_f = inverse_warp(img_l1_aug, depth_l1, cms_f[0], k_l1_aug, torch.inverse(k_l1_aug))
@@ -345,7 +353,13 @@ class Loss_SceneFlow_SemiSup(nn.Module):
 
         mask_consensus_loss = tf.binary_cross_entropy(motion_mask_f, census_target_mask)
 
-        return stereo_consistency_loss, ego_consistency_loss, static_scene_flow_consistency_loss, cam_motion_reconstruction_loss, mask_consensus_loss
+        #  TODO: dynamic object reconstruction
+
+        return stereo_consistency_loss, \
+            ego_consistency_loss, \
+            static_scene_flow_consistency_loss, \
+            cam_motion_reconstruction_loss, \
+            mask_consensus_loss
 
     def depth_loss_left_img(self, disp_l, disp_r, img_l_aug, img_r_aug, ii):
 
@@ -364,14 +378,14 @@ class Loss_SceneFlow_SemiSup(nn.Module):
 
         return loss_img + self._disp_smooth_w * loss_smooth, left_occ
 
-    def sceneflow_loss(self, 
-                       sf_f, sf_b, # sf: [static, dynamic]
-                       cms_f, cms_b, # cms: [left, right]
-                       disp_l1, disp_l2, 
-                       disp_occ_l1, disp_occ_l2, 
-                       k_l1_aug, k_l2_aug, 
+    def sceneflow_loss(self,
+                       sf_f, sf_b,  # sf: [static, dynamic]
+                       cms_f, cms_b,  # cms: [left, right]
+                       disp_l1, disp_l2,
+                       disp_occ_l1, disp_occ_l2,
+                       k_l1_aug, k_l2_aug,
                        k_r1_aug, k_r2_aug,
-                       img_l1_aug, img_l2_aug, 
+                       img_l1_aug, img_l2_aug,
                        img_r1_aug, img_r2_aug,
                        motion_mask_f, motion_mask_b,
                        aug_size, ii):
@@ -417,17 +431,17 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         img_diff2[~occ_map_b].detach_()
         loss_im = loss_im1 + loss_im2
 
-        losses_consistency = self.consistency_loss(img_l1_warp, img_l2_warp, 
-                                                   sf_f, sf_b,
-                                                   cms_f, cms_b,
-                                                   disp_l1, disp_l2,
-                                                   occ_map_f, occ_map_b,
-                                                   disp_occ_l1, disp_occ_l2,
-                                                   k_l1_aug, k_l2_aug,
-                                                   k_r1_aug, k_r2_aug,
-                                                   img_l1_aug, img_r1_aug,
-                                                   img_l2_aug, img_r2_aug,
-                                                   motion_mask_f, motion_mask_b)
+        loss_consistency = self.consistency_loss(img_l1_warp, img_l2_warp,
+                                                 sf_f, sf_b,
+                                                 cms_f, cms_b,
+                                                 disp_l1, disp_l2,
+                                                 occ_map_f, occ_map_b,
+                                                 disp_occ_l1, disp_occ_l2,
+                                                 k_l1_aug, k_l2_aug,
+                                                 k_r1_aug, k_r2_aug,
+                                                 img_l1_aug, img_r1_aug,
+                                                 img_l2_aug, img_r2_aug,
+                                                 motion_mask_f, motion_mask_b)
 
         # Point reconstruction Loss
         pts_norm1 = torch.norm(pts1, p=2, dim=1, keepdim=True)
@@ -438,8 +452,6 @@ class Loss_SceneFlow_SemiSup(nn.Module):
             dim=1, keepdim=True) / (pts_norm2 + 1e-8)
         loss_pts1 = pts_diff1[occ_map_f].mean()
         loss_pts2 = pts_diff2[occ_map_b].mean()
-
-
 
         pts_diff1[~occ_map_f].detach_()
         pts_diff2[~occ_map_b].detach_()
@@ -470,7 +482,7 @@ class Loss_SceneFlow_SemiSup(nn.Module):
 
         loss_dict = {}
 
-        batch_size = target_dict['input_l1'].size(0)
+        # batch_size = target_dict['input_l1'].size(0)
         loss_sf_sum = 0
         loss_dp_sum = 0
         loss_sf_2d = 0
@@ -484,7 +496,12 @@ class Loss_SceneFlow_SemiSup(nn.Module):
         disp_r1_dict = output_dict['output_dict_r']['disp_l1']
         disp_r2_dict = output_dict['output_dict_r']['disp_l2']
 
-        for ii, (sf_f, sf_b, disp_l1, disp_l2, disp_r1, disp_r2) in enumerate(zip(output_dict['flow_f'], output_dict['flow_b'], output_dict['disp_l1'], output_dict['disp_l2'], disp_r1_dict, disp_r2_dict)):
+        for ii, (sf_f, sf_b, disp_l1, disp_l2, disp_r1, disp_r2) in enumerate(zip(output_dict['flow_f'],
+                                                                                  output_dict['flow_b'],
+                                                                                  output_dict['disp_l1'],
+                                                                                  output_dict['disp_l2'],
+                                                                                  disp_r1_dict,
+                                                                                  disp_r2_dict)):
 
             assert(sf_f.size()[2:4] == sf_b.size()[2:4])
             assert(sf_f.size()[2:4] == disp_l1.size()[2:4])
@@ -505,15 +522,15 @@ class Loss_SceneFlow_SemiSup(nn.Module):
                 (loss_disp_l1 + loss_disp_l2) * self._weights[ii]
 
             # Sceneflow Loss
-            loss_sceneflow, loss_im, loss_pts, loss_3d_s, loss_consistency = self.sceneflow_loss(sf_f, sf_b,
-                                                                               disp_l1, disp_l2,
-                                                                               disp_occ_l1, disp_occ_l2,
-                                                                               k_l1_aug, k_l2_aug,
-                                                                               img_l1_aug, img_l2_aug,
-                                                                               aug_size, ii)
+            loss_sceneflow, loss_im, loss_pts, loss_3d_s, loss_cons = self.sceneflow_loss(sf_f, sf_b,
+                                                                                          disp_l1, disp_l2,
+                                                                                          disp_occ_l1, disp_occ_l2,
+                                                                                          k_l1_aug, k_l2_aug,
+                                                                                          img_l1_aug, img_l2_aug,
+                                                                                          aug_size, ii)
 
             # consistency loss
-            #loss_consistency = torch.sum([w * loss for w, loss in zip(self._consistency_weights, losses_consistency)])
+            # loss_consistency = torch.sum([w * loss for w, loss in zip(self._consistency_weights, losses_consistency)])
             # TODO: wtf is going on with ii
 
             loss_sf_sum = loss_sf_sum + loss_sceneflow * self._weights[ii]
@@ -574,7 +591,13 @@ class Loss_SceneFlow_SelfSup(nn.Module):
 
         return loss_img + self._disp_smooth_w * loss_smooth, left_occ
 
-    def sceneflow_loss(self, sf_f, sf_b, disp_l1, disp_l2, disp_occ_l1, disp_occ_l2, k_l1_aug, k_l2_aug, img_l1_aug, img_l2_aug, aug_size, ii):
+    def sceneflow_loss(self,
+                       sf_f, sf_b,
+                       disp_l1, disp_l2,
+                       disp_occ_l1, disp_occ_l2,
+                       k_l1_aug, k_l2_aug,
+                       img_l1_aug, img_l2_aug,
+                       aug_size, ii):
 
         _, _, h_dp, w_dp = sf_f.size()
         disp_l1 = disp_l1 * w_dp
@@ -652,7 +675,7 @@ class Loss_SceneFlow_SelfSup(nn.Module):
 
         loss_dict = {}
 
-        batch_size = target_dict['input_l1'].size(0)
+        # batch_size = target_dict['input_l1'].size(0)
         loss_sf_sum = 0
         loss_dp_sum = 0
         loss_sf_2d = 0
@@ -666,7 +689,12 @@ class Loss_SceneFlow_SelfSup(nn.Module):
         disp_r1_dict = output_dict['output_dict_r']['disp_l1']
         disp_r2_dict = output_dict['output_dict_r']['disp_l2']
 
-        for ii, (sf_f, sf_b, disp_l1, disp_l2, disp_r1, disp_r2) in enumerate(zip(output_dict['flow_f'], output_dict['flow_b'], output_dict['disp_l1'], output_dict['disp_l2'], disp_r1_dict, disp_r2_dict)):
+        for ii, (sf_f, sf_b, disp_l1, disp_l2, disp_r1, disp_r2) in enumerate(zip(output_dict['flow_f'],
+                                                                                  output_dict['flow_b'],
+                                                                                  output_dict['disp_l1'],
+                                                                                  output_dict['disp_l2'],
+                                                                                  disp_r1_dict,
+                                                                                  disp_r2_dict)):
 
             assert(sf_f.size()[2:4] == sf_b.size()[2:4])
             assert(sf_f.size()[2:4] == disp_l1.size()[2:4])
@@ -1010,7 +1038,7 @@ class Eval_SceneFlow_KITTI_Train(nn.Module):
 
 
 ###############################################
-## Ablation - Loss_SceneFlow_SelfSup
+# Ablation - Loss_SceneFlow_SelfSup
 ###############################################
 
 class Loss_SceneFlow_SelfSup_NoOcc(nn.Module):

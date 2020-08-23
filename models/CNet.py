@@ -51,6 +51,7 @@ class CNet(nn.Module):
                 num_ch_in = self.dim_corr + ch
                 # out_corr_relu, x, x_out (64 s+d), flow_s, flow_d, disp_s, disp_d
                 num_ch_in_mask = self.dim_corr + ch + 64 + 3 + 3 + 1 + 1
+                num_ch_in_cm = self.dim_corr + ch + ch 
             else:
                 num_ch_in = self.dim_corr + ch + 64 + 3 + 1
                 # out_corr_relu, x, x_out(s & d combined -> 64 ch instead of 32), flow_res, flow_res, disp_s, disp_d + rigidity_mask_upsampled
@@ -62,7 +63,7 @@ class CNet(nn.Module):
             dynamic_layer_sf = MonoSceneFlowDecoder(num_ch_in)
 
             mask_decoder = MaskNetDecoder(num_ch_in_mask)
-            cam_motion_decoder = CameraMotionDecoder(self.dim_corr + ch + 32 + 32)
+            cam_motion_decoder = CameraMotionDecoder(self.dim_corr + ch + ch + 32)
 
             self.static_flow_estimators.append(static_layer_sf)
             self.dynamic_flow_estimators.append(dynamic_layer_sf)
@@ -77,13 +78,16 @@ class CNet(nn.Module):
 
         initialize_msra(self.modules())
 
-    def run_pwc(self, input_dict, x1_raw, x2_raw, k1, k2):
+    def run_pwc(self, input_dict, l1_raw, l2_raw, r1_raw, r2_raw, k_l1, k_l2, k_r1, k_r2):
 
         output_dict = {}
 
         # on the bottom level are original images
-        x1_pyramid = self.feature_pyramid_extractor(x1_raw) + [x1_raw]
-        x2_pyramid = self.feature_pyramid_extractor(x2_raw) + [x2_raw]
+        l1_pyramid = self.feature_pyramid_extractor(l1_raw) + [l1_raw]
+        l2_pyramid = self.feature_pyramid_extractor(l2_raw) + [l2_raw]
+
+        r1_pyramid = self.feature_pyramid_extractor(r1_raw) + [r1_raw]
+        r2_pyramid = self.feature_pyramid_extractor(r2_raw) + [r2_raw]
 
         # outputs
         sceneflows_f = []
@@ -110,12 +114,14 @@ class CNet(nn.Module):
         disps_l2_s = []
         disps_l2_d = []
 
-        for l, (x1, x2) in enumerate(zip(x1_pyramid, x2_pyramid)):
+        for l, (x1, x2, r1, r2) in enumerate(zip(l1_pyramid, l2_pyramid, r1_pyramid, r2_pyramid)):
 
             # warping
             if l == 0:
                 x2_warp = x2
                 x1_warp = x1
+                r2_warp = r2
+                r1_warp = r1
             else:
                 flow_f = interpolate2d_as(flow_f, x1, mode="bilinear")
                 flow_b = interpolate2d_as(flow_b, x1, mode="bilinear")
@@ -125,15 +131,20 @@ class CNet(nn.Module):
                 x2_out = self.upconv_layers[l-1](x2_out)
                 # becuase K can be changing when doing augmentation
                 x2_warp = self.warping_layer_sf(
-                    x2, flow_f, disp_l1, k1, input_dict['aug_size'])
+                    x2, flow_f, disp_l1, k_l1, input_dict['aug_size'])
                 x1_warp = self.warping_layer_sf(
-                    x1, flow_b, disp_l2, k2, input_dict['aug_size'])
+                    x1, flow_b, disp_l2, k_l2, input_dict['aug_size'])
 
             # correlation
             out_corr_f = Correlation.apply(x1, x2_warp, self.corr_params)
             out_corr_b = Correlation.apply(x2, x1_warp, self.corr_params)
             out_corr_relu_f = self.leakyRELU(out_corr_f)
             out_corr_relu_b = self.leakyRELU(out_corr_b)
+
+            out_corr_f_r = Correlation.apply(r1, r2_warp, self.corr_params)
+            out_corr_b_r = Correlation.apply(r2, r1_warp, self.corr_params)
+            out_corr_relu_f_r = self.leakyRELU(out_corr_f_r)
+            out_corr_relu_b_r = self.leakyRELU(out_corr_b_r)
 
             # joint estimator
             # passing in x1_out flow_f instead of x1_out_s and flow_f_s
@@ -142,27 +153,27 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_f, x1], dim=1))
                 x1_out_d, flow_f_d, disp_l1_d = self.dynamic_flow_estimators[l](
                     torch.cat([out_corr_relu_f, x1], dim=1))
-
-                cam_feats_f, cam_motion_f = self.cam_motion_decoders[l](
-                    torch.cat([out_corr_relu_f, x1, x1_out_s], dim=1))
-
                 x1_out = torch.cat([x1_out_s, x1_out_d], dim=1)
 
                 x2_out_s, flow_b_s, disp_l2_s = self.static_flow_estimators[l](
                     torch.cat([out_corr_relu_b, x2], dim=1))
                 x2_out_d, flow_b_d, disp_l2_d = self.dynamic_flow_estimators[l](
                     torch.cat([out_corr_relu_b, x2], dim=1))
-
-                cam_feats_b, cam_motion_b = self.cam_motion_decoders[l](
-                    torch.cat([out_corr_relu_b, x2, x2_out_s], dim=1))
-
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                rigidity_mask_fwd, rigidity_mask_fwd_upsampled = self.mask_decoders[l](
-                    torch.cat([out_corr_relu_f, x1, x1_out, flow_f_s, flow_f_d, disp_l1_s, disp_l1_d], dim=1))
+                cm_feats_f_l, cm_f_l = self.cam_motion_decoders[l](
+                    torch.cat([out_corr_relu_f  , x1, x2, x1_out_s], dim=1))
+                cm_feats_f_r, cm_f_r = self.cam_motion_decoders[l](
+                    torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s], dim=1))
+                cm_feats_b_l, cm_b_l = self.cam_motion_decoders[l](
+                    torch.cat([out_corr_relu_b  , x2, x1, x2_out_s], dim=1))
+                cm_feats_b_r, cm_b_r = self.cam_motion_decoders[l](
+                    torch.cat([out_corr_relu_b_r, r2, r1, x2_out_s], dim=1))
 
-                rigidity_mask_bwd, rigidity_mask_bwd_upsampled = self.mask_decoders[l](
-                    torch.cat([out_corr_relu_b, x2, x2_out, flow_b_s, flow_b_d, disp_l2_s, disp_l2_d], dim=1))
+                mask_f_l, mask_f_l_upsampled = self.mask_decoders[l](
+                    torch.cat([out_corr_relu_f, x1, x2, x1_out], dim=1))
+                mask_b_l, mask_b_l_upsampled = self.mask_decoders[l](
+                    torch.cat([out_corr_relu_b, x2, x1, x2_out], dim=1))
 
                 if self._args['debug']:
                     print(f"pyramid level: {l}", rigidity_mask_fwd_upsampled.shape, rigidity_mask_bwd_upsampled.shape)
@@ -323,7 +334,9 @@ class CNet(nn.Module):
             input_dict['input_r1_aug'], 
             input_dict['input_r2_aug'], 
             input_dict['input_k_l1_aug'], 
-            input_dict['input_k_l2_aug'])
+            input_dict['input_k_l2_aug'],
+            input_dict['input_k_r1_aug'], 
+            input_dict['input_k_r2_aug'])
 
         # Right
         # ss: train val

@@ -6,7 +6,7 @@ import torch.nn.functional as tf
 import numpy as np
 
 from utils.interpolation import interpolate2d
-from utils.interpolation import Interp2, Meshgrid
+from utils.interpolation import Meshgrid
 
 
 class PhotometricAugmentation(nn.Module):
