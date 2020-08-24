@@ -331,18 +331,18 @@ class Augmentation_SceneFlow(Augmentation_ScaleCrop):
         # --------------------------------------------------------
         # Param init
         # --------------------------------------------------------
-        im_l1 = example_dict["rgb_l1"]
-        im_l2 = example_dict["rgb_l2"]
-        im_r1 = example_dict["rgb_r1"]
-        im_r2 = example_dict["rgb_r2"]
-        seg_l1 = example_dict["seg_l1"]
-        seg_l2 = example_dict["seg_l2"]
-        seg_r1 = example_dict["seg_r1"]
-        seg_r2 = example_dict["seg_r2"]
-        depth_l1 = example_dict["depth_l1"]
-        depth_l2 = example_dict["depth_l2"]
-        depth_r1 = example_dict["depth_r1"]
-        depth_r2 = example_dict["depth_r2"]
+        im_l1 = example_dict["input_rgb_l1"]
+        im_l2 = example_dict["input_rgb_l2"]
+        im_r1 = example_dict["input_rgb_r1"]
+        im_r2 = example_dict["input_rgb_r2"]
+        seg_l1 = example_dict["target_seg_l1"]
+        seg_l2 = example_dict["target_seg_l2"]
+        seg_r1 = example_dict["target_seg_r1"]
+        seg_r2 = example_dict["target_seg_r2"]
+        depth_l1 = example_dict["target_depth_l1"]
+        depth_l2 = example_dict["target_depth_l2"]
+        depth_r1 = example_dict["target_depth_r1"]
+        depth_r2 = example_dict["target_depth_r2"]
         k_l1 = example_dict["input_k_l1"].clone()
         k_l2 = example_dict["input_k_l2"].clone()
         k_r1 = example_dict["input_k_r1"].clone()
