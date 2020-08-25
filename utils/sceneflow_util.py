@@ -4,6 +4,7 @@ import torch
 from torch import nn
 import torch.nn.functional as tf
 
+from .inverse_warp import pose_vec2mat
 
 def post_processing(l_disp, r_disp):
 
@@ -16,6 +17,21 @@ def post_processing(l_disp, r_disp):
     return r_mask * l_disp + l_mask * r_disp + (1.0 - l_mask - r_mask) * m_disp
 
 
+def cm_horizontal_flip(cam_motion, dataset_name="KITTI"):
+  """
+  [tx, ty, tz, rx, ry, rz] -> [-tx, ty, tz, rx, ry, pi - rz]
+  """
+
+  assert(len(cam_motion) == 6)
+  if dataset_name == "KITTI":
+    cam_motion[0] = -cam_motion[0]
+    cam_motion
+  # pose_mat = pose_vec2mat(cam_motion)
+  # flip_mat = torch.eye(4)
+  # flipped_mat = pose_mat.mm(flip_mat)
+  return cam_motion
+
+
 def flow_horizontal_flip(flow_input):
 
     flow_flip = torch.flip(flow_input, [3])
@@ -24,7 +40,7 @@ def flow_horizontal_flip(flow_input):
     return flow_flip.contiguous()
 
 
-def depth2disp(f, baseline, depth):
+def depth2disp(f, depth, baseline=0.54):
     disp = f.unsqueeze(1).unsqueeze(1) * baseline / (depth + 1e-8)
     return disp
 

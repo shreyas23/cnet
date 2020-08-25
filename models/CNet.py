@@ -13,7 +13,7 @@ from .modules_sceneflow import MaskNetDecoder, CameraMotionDecoder
 from .modules_sceneflow import apply_rigidity_mask
 
 from utils.interpolation import interpolate2d_as
-from utils.sceneflow_util import flow_horizontal_flip, post_processing
+from utils.sceneflow_util import flow_horizontal_flip, post_processing, cm_horizontal_flip
 
 
 class CNet(nn.Module):
@@ -336,8 +336,6 @@ class CNet(nn.Module):
             input_dict['input_k_r1_aug'],
             input_dict['input_k_r2_aug'])
 
-        print(output_dict.keys())
-
         # Right
         # ss: train val
         # ft: train
@@ -391,8 +389,12 @@ class CNet(nn.Module):
                   output_dict_r['rigidity_f'][ii], [3])
                 output_dict_r['rigidity_b'][ii] = torch.flip(
                   output_dict_r['rigidity_b'][ii], [3])
-
-                # TODO: need to reverse cam motion parameters as well
+                
+                # [tx, ty, tz, rx, ry, rz]
+                output_dict_r['cms_f_l'][ii] = cm_horizontal_flip(output_dict_r['cms_f_l'][ii])
+                output_dict_r['cms_f_r'][ii] = cm_horizontal_flip(output_dict_r['cms_f_r'][ii])
+                output_dict_r['cms_b_l'][ii] = cm_horizontal_flip(output_dict_r['cms_b_l'][ii])
+                output_dict_r['cms_b_r'][ii] = cm_horizontal_flip(output_dict_r['cms_b_r'][ii])
 
             output_dict['output_dict_r'] = output_dict_r
 

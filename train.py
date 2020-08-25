@@ -5,13 +5,21 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+from torch.optim import Adam, SGD
+
+from models.CNet import CNet 
+from losses import Loss_SceneFlow_SelfSup, Loss_SceneFlow_SemiSup
+from augmentations import Augmentation_SceneFlow, Augmentation_SceneFlow_Carla
+from datasets.kitti_raw_monodepth import CarlaDataset, KITTI_Raw_KittiSplit_Train, KITTI_Raw_KittiSplit_Valid
 
 parser = argparse.ArgumentParser(description="Self Supervised Joint Learning of Scene Flow and Motion Segmentation",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
+parser.add_argument('--dataset_name', help='KITTI or Carla', required=True)
 parser.add_argument('--data_root', help='path to dataset', required=True)
-parser.add_argument('--kitti_2015_root', help='path to dataset', required=True)
+# parser.add_argument('--kitti_2015_root', help='path to dataset', required=True)
 parser.add_argument('--exp_name', type=str, default='test', help='name of experiment, chkpts stored in checkpoints/experiment')
+parser.add_argument('--resume_from_epoch', default=0, help='resume from checkpoint (using experiment name)')
 parser.add_argument('--epochs', type=int, default=1, help='number of epochs to run')
 parser.add_argument('--batch_size', type=int, default=1, help='batch size')
 parser.add_argument('--lr', type=float, default=2e-4, help='initial learning rate')
@@ -20,39 +28,88 @@ parser.add_argument('--beta', type=float, default=0.999, help='beta param for ad
 parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay')
 parser.add_argument('--dropout', type=bool, default=False, help='dropout for regularization', choices=[True, False])
 parser.add_argument('--num_pyramid_levels', type=int, default=6, help='number of pyramid feature levels')
-parser.add_argument('--resume', action='store_true', help='resume from checkpoint (using experiment name)')
+parser.add_argument('--seed', default=123, help='random seed for reproducibility')
 
+args  = parser.parse_args()
 
 def main():
-  args  = parser.parse_args()
+  DATASET_NAME = args.dataset_name
+  DATA_ROOT = args.data_root
 
   # load the dataset/dataloader
-  dataset = None
-  dataloader = None
+  if DATASET_NAME == 'KITTI':
+    train_dataset = KITTI_Raw_KittiSplit_Train(args, DATA_ROOT)
+    val_dataset = KITTI_Raw_KittiSplit_Valid(args, DATA_ROOT)
+    augmentations = Augmentation_SceneFlow(args)
+    loss = Loss_SceneFlow_SelfSup(args)
+  elif DATASET_NAME == 'CARLA':
+    train_dataset = CarlaDataset(args, DATA_ROOT)
+    val_dataset = None
+    augmentations = Augmentation_SceneFlow_Carla(args)
+    loss = Loss_SceneFlow_SemiSup(args)
+  else:
+    raise Exception('Dataset name is not valid')
+
+  train_dataloader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+  val_dataloader = DataLoader(val_dataset, 1, shuffle=False, num_workers=8, pin_memory=True) if val_dataset else None
+
+  lr_scheduler = None
 
   # load the model
-  model = None
-
-  # load the augmentations
-  augmentations = None
-
-  # load the optimizer
-  optimizer = None
+  model = CNet(args)
+  params = model.parameters()
+  optimizer = Adam(model.parameters(), lr=args.lr, betas=[args.momentum, args.beta], weight_decay=args.weight_decay)
 
     # run training loop
-  for epoch in range(args.epochs):
+  for epoch in range(args.resume_from_epoch, args.total_epochs + 1):
     print(f"Training epoch: {epoch + 1}")
-    train_one_epoch(model, dataloader, optimizer, augmentations)
+    loss_dict = train_one_epoch(model, train_dataloader, optimizer, augmentations)
+
+    if lr_scheduler is not None:
+      lr_scheduler.step(epoch)
 
     return
 
-def step()
+def step(args, data_dict, model, loss, augmentations, optimizer):
+  # Get input and target tensor keys
+  input_keys = list(filter(lambda x: "input" in x, data_dict.keys()))
+  target_keys = list(filter(lambda x: "target" in x, data_dict.keys()))
+  tensor_keys = input_keys + target_keys
 
-def train_one_epoch(model, dataloader, optimizer, augmentations):
+  # Possibly transfer to Cuda
+  if self._args.cuda:
+    for k, v in data_dict.items():
+      if k in tensor_keys:
+        data_dict[k] = v.cuda(non_blocking=True)
+
+  if augmentations is not None:
+    with torch.no_grad():
+      data_dict = augmentations(data_dict)
+  
+  for k, t in data_dict.items():
+    if k in input_keys:
+      data_dict[key] = t.requires_grad_(True)
+    if k in target_keys:
+      data_dict[key] = t.requires_grad_(False)
+
+  optimizer.zero_grad()
+  output_dict = model(data)
+  loss_dict = loss(output_dict)
+
+  training_loss = loss_dict['train_loss']
+
+  assert (not np.isnan(training_loss.item())), "training_loss is NaN"
+
+  return loss_dict, output_dict
+
+
+
+def train_one_epoch(model, loss, dataloader, optimizer, augmentations):
 
   model.train()
 
   for i, data in enumerate(dataloader):
+    step_loss = step(model, data, augmentations)
 
     # caclulate gradients and then do Adam step
     optimizer.zero_grad()

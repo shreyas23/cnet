@@ -445,10 +445,10 @@ class Augmentation_SceneFlow(Augmentation_ScaleCrop):
         # --------------------------------------------------------
         # Param init
         # --------------------------------------------------------
-        im_l1 = example_dict["input_rgb_l1"]
-        im_l2 = example_dict["input_rgb_l2"]
-        im_r1 = example_dict["input_rgb_r1"]
-        im_r2 = example_dict["input_rgb_r2"]
+        im_l1 = example_dict["input_l1"]
+        im_l2 = example_dict["input_l2"]
+        im_r1 = example_dict["input_r1"]
+        im_r2 = example_dict["input_r2"]
         k_l1 = example_dict["input_k_l1"].clone()
         k_l2 = example_dict["input_k_l2"].clone()
         k_r1 = example_dict["input_k_r1"].clone()
