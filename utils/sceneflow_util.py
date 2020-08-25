@@ -4,6 +4,7 @@ import torch
 from torch import nn
 import torch.nn.functional as tf
 
+import numpy as np
 from .inverse_warp import pose_vec2mat
 
 def post_processing(l_disp, r_disp):
@@ -21,14 +22,13 @@ def cm_horizontal_flip(cam_motion, dataset_name="KITTI"):
   """
   [tx, ty, tz, rx, ry, rz] -> [-tx, ty, tz, rx, ry, pi - rz]
   """
-
   assert(len(cam_motion) == 6)
   if dataset_name == "KITTI":
     cam_motion[0] = -cam_motion[0]
-    cam_motion
-  # pose_mat = pose_vec2mat(cam_motion)
-  # flip_mat = torch.eye(4)
-  # flipped_mat = pose_mat.mm(flip_mat)
+    cam_motion[-2] = np.pi - cam_motion[-2]
+  elif dataset_name == "CARLA":
+    cam_motion[1] = -cam_motion[1]
+    cam_motion[-1] = np.pi - cam_motion[-1]
   return cam_motion
 
 
