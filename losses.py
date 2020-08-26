@@ -190,13 +190,13 @@ def _depth2disp_kitti_K(depth, k_value):
 # Semi-supervised Pre-training Loss function
 ###############################################
 
-class Loss_SceneFlow_SemiSup(nn.Module):
+class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
     def __init__(self, args):
-        super(Loss_SceneFlow_SemiSup, self).__init__()
+        super(Loss_SceneFlow_SelfSup_Consistency, self).__init__()
 
         self._args = args
         self._weights = [4.0, 2.0, 1.0, 1.0, 1.0]
-        self._consistency_weights = [1.0, 1.0, 1.0, 1.0, 1.0]
+        self._consistency_weights = [1.0, 1.0, 1.0, 1.0]
         self._ssim_w = 0.85
         self._disp_smooth_w = 0.1
         self._sf_3d_pts = 0.2

@@ -190,7 +190,9 @@ class KITTI_Raw(data.Dataset):
         ## loading calibration matrix
         self.intrinsic_dict_l = {}
         self.intrinsic_dict_r = {}        
-        self.intrinsic_dict_l, self.intrinsic_dict_r = read_calib_into_dict(path_dir)
+        self.cam_r2l = {}
+        self.cam_l2r = {}
+        self.intrinsic_dict_l, self.intrinsic_dict_r, self.cam_r2l, self.cam_l2r = read_calib_into_dict(path_dir)
 
         self._to_tensor = vision_transforms.Compose([
             vision_transforms.ToPILImage(),

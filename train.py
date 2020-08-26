@@ -10,7 +10,9 @@ from torch.optim import Adam, SGD
 from models.CNet import CNet 
 from losses import Loss_SceneFlow_SelfSup, Loss_SceneFlow_SemiSup
 from augmentations import Augmentation_SceneFlow, Augmentation_SceneFlow_Carla
-from datasets.kitti_raw_monodepth import CarlaDataset, KITTI_Raw_KittiSplit_Train, KITTI_Raw_KittiSplit_Valid
+from datasets.kitti_raw_monosf import CarlaDataset, KITTI_Raw_KittiSplit_Train, KITTI_Raw_KittiSplit_Valid
+
+from torchsummary import summary
 
 parser = argparse.ArgumentParser(description="Self Supervised Joint Learning of Scene Flow and Motion Segmentation",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -21,6 +23,7 @@ parser.add_argument('--data_root', help='path to dataset', required=True)
 parser.add_argument('--exp_name', type=str, default='test', help='name of experiment, chkpts stored in checkpoints/experiment')
 parser.add_argument('--resume_from_epoch', default=0, help='resume from checkpoint (using experiment name)')
 parser.add_argument('--epochs', type=int, default=1, help='number of epochs to run')
+parser.add_argument('--cuda', type=bool, default=True, help='use gpu')
 parser.add_argument('--batch_size', type=int, default=1, help='batch size')
 parser.add_argument('--lr', type=float, default=2e-4, help='initial learning rate')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum for sgd or alpha param for adam')
@@ -57,18 +60,26 @@ def main():
 
   # load the model
   model = CNet(args)
+  if args.cuda:
+    model = model.cuda()
+
+  summary(model, None)
+
   params = model.parameters()
+  num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+  print(num_params)
+
   optimizer = Adam(model.parameters(), lr=args.lr, betas=[args.momentum, args.beta], weight_decay=args.weight_decay)
 
     # run training loop
-  for epoch in range(args.resume_from_epoch, args.total_epochs + 1):
-    print(f"Training epoch: {epoch + 1}")
-    loss_dict = train_one_epoch(model, train_dataloader, optimizer, augmentations)
+  # for epoch in range(args.resume_from_epoch, args.total_epochs + 1):
+  #   print(f"Training epoch: {epoch + 1}")
+  #   loss_dict = train_one_epoch(model, train_dataloader, optimizer, augmentations)
 
-    if lr_scheduler is not None:
-      lr_scheduler.step(epoch)
+  #   if lr_scheduler is not None:
+  #     lr_scheduler.step(epoch)
 
-    return
+  return
 
 def step(args, data_dict, model, loss, augmentations, optimizer):
   # Get input and target tensor keys
