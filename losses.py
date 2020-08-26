@@ -209,11 +209,12 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                          disp_l1, disp_l2,
                          occ_map_f, occ_map_b,
                          disp_occ_l1, disp_occ_l2,
-                         k_l1_aug, k_l2_aug,
-                         k_r1_aug, k_r2_aug,
                          img_l1_aug, img_r1_aug,
                          img_l2_aug, img_r2_aug,
-                         motion_mask_f, motion_mask_b):
+                         motion_mask_f, motion_mask_b
+                         k_l1_aug, k_l2_aug,
+                         k_r1_aug, k_r2_aug,
+                         cam_l2r,):
 
         # cross term image reconstruction loss
         cross_warp_img_f = _apply_disparity(img_l1_warp, disp_l2)
@@ -234,9 +235,9 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         depth_l1 = disp2depth_kitti(disp_l1, k_l1_aug[:, 0, 0], baseline=self._args['baseline'])
         depth_r1 = _apply_disparity(depth_l1, disp_l1)
 
-        # apply left2right transformation for left cam so we can compare
-        cms_f_warp = torch.matmul(pose_vec2mat(cms_f[0]),
-                                  self._args['l2r_translation'])
+        # XXX: Potential bug here (order of operations for)
+        cms_f_warp = torch.matmul(pose_vec2mat(cms_f[0]), cam_l2r)
+
         cam_flow_l = pose2flow(depth_l1,
                                cms_f_warp,
                                k_l1_aug,
@@ -247,14 +248,15 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                                k_r1_aug,
                                torch.inverse(k_r1_aug))
 
-        # ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean() 
+        ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean() 
 
         # induced static scene flow knowledge distillation loss
         static_scene_flow_consistency_diff = _elementwise_epe(cam_flow_l, sf_f)
         static_scene_flow_consistency_loss = \
             static_scene_flow_consistency_diff[motion_mask_f]
 
-        # static reconstruction loss
+        # static reconstruction loss through camera motion and disparity
+
         # static_warp_l1_f = inverse_warp(img_l1_aug, depth_l1, cms_f[0], k_l1_aug, torch.inverse(k_l1_aug))
         # static_warp_r1_f = inverse_warp(img_r1_aug, depth_r1, cms_f[0], k_r1_aug, torch.inverse(k_r1_aug))
         static_warp_l1_f = flow_warp(img_l1_aug, cam_flow_l)
@@ -274,8 +276,6 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         census_target_mask = target_mask | flow_diff
 
         mask_consensus_loss = tf.binary_cross_entropy(motion_mask_f, census_target_mask)
-
-        #  TODO: dynamic object reconstruction
 
         return stereo_consistency_loss, \
             static_scene_flow_consistency_loss, \
@@ -305,12 +305,12 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                        cms_f, cms_b,  # cms: [left, right]
                        disp_l1, disp_l2,
                        disp_occ_l1, disp_occ_l2,
-                       k_l1_aug, k_l2_aug,
-                       k_r1_aug, k_r2_aug,
                        img_l1_aug, img_l2_aug,
                        img_r1_aug, img_r2_aug,
                        motion_mask_f, motion_mask_b,
-                       aug_size, ii):
+                       k_l1_aug, k_l2_aug,
+                       k_r1_aug, k_r2_aug,
+                       cam_l2r, aug_size, ii):
 
         _, _, h_dp, w_dp = sf_f.size()
         disp_l1 = disp_l1 * w_dp
@@ -359,11 +359,12 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                                                  disp_l1, disp_l2,
                                                  occ_map_f, occ_map_b,
                                                  disp_occ_l1, disp_occ_l2,
-                                                 k_l1_aug, k_l2_aug,
-                                                 k_r1_aug, k_r2_aug,
                                                  img_l1_aug, img_r1_aug,
                                                  img_l2_aug, img_r2_aug,
-                                                 motion_mask_f, motion_mask_b)
+                                                 motion_mask_f, motion_mask_b
+                                                 k_l1_aug, k_l2_aug,
+                                                 k_r1_aug, k_r2_aug,
+                                                 cam_l2r)
 
         # Point reconstruction Loss
         pts_norm1 = torch.norm(pts1, p=2, dim=1, keepdim=True)
@@ -384,7 +385,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         loss_3d_s = ((_smoothness_motion_2nd(sf_f, img_l1_aug, beta=10.0) / (pts_norm1 + 1e-8)).mean() +
                      (_smoothness_motion_2nd(sf_b, img_l2_aug, beta=10.0) / (pts_norm2 + 1e-8)).mean()) / (2 ** ii)
 
-        # Loss Summnation
+        # Loss Summation
         sceneflow_loss = loss_im + self._sf_3d_pts * \
             loss_pts + self._sf_3d_sm * loss_3d_s + loss_consistency
 
@@ -410,6 +411,8 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         loss_sf_2d = 0
         loss_sf_3d = 0
         loss_sf_sm = 0
+        loss_cms_warp = 0
+        loss_
 
         k_l1_aug = target_dict['input_k_l1_aug']
         k_l2_aug = target_dict['input_k_l2_aug']
@@ -444,12 +447,16 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                 (loss_disp_l1 + loss_disp_l2) * self._weights[ii]
 
             # Sceneflow Loss
-            loss_sceneflow, loss_im, loss_pts, loss_3d_s, loss_cons = self.sceneflow_loss(sf_f, sf_b,
+            loss_sceneflow, loss_im, loss_pts, loss_3d_s, loss_cons = self.sceneflow_loss(sf_f, sf_b,  # sf: [static, dynamic]
+                                                                                          cms_f, cms_b,  # cms: [left, right]
                                                                                           disp_l1, disp_l2,
                                                                                           disp_occ_l1, disp_occ_l2,
-                                                                                          k_l1_aug, k_l2_aug,
                                                                                           img_l1_aug, img_l2_aug,
-                                                                                          aug_size, ii)
+                                                                                          img_r1_aug, img_r2_aug,
+                                                                                          motion_mask_f, motion_mask_b,
+                                                                                          k_l1_aug, k_l2_aug,
+                                                                                          k_r1_aug, k_r2_aug,
+                                                                                          cam_l2r, aug_size, ii):
 
             # consistency loss
             # loss_consistency = torch.sum([w * loss for w, loss in zip(self._consistency_weights, losses_consistency)])
