@@ -168,9 +168,9 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_b, x2], dim=1))
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                cm_feats_f_l, cm_f = self.cam_motion_decoders[level](
+                cm_feats_f, cm_f = self.cam_motion_decoders[level](
                     torch.cat([out_corr_relu_f, x1, x2, x1_out_s], dim=1))
-                cm_feats_b_l, cm_b = self.cam_motion_decoders[level](
+                cm_feats_b, cm_b = self.cam_motion_decoders[level](
                     torch.cat([out_corr_relu_b, x2, x1, x2_out_s], dim=1))
                 # cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
                 #     torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s], dim=1))
@@ -200,10 +200,10 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_b, x2, x2_out, flow_b, disp_l2], dim=1))
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                cm_feats_f_l, cm_f = self.cam_motion_decoders[level](
-                    torch.cat([x1, x2, x1_out_s, cm_feats_f_l], dim=1))
-                cm_feats_b_l, cm_b = self.cam_motion_decoders[level](
-                    torch.cat([x2, x1, x2_out_s, cm_feats_b_l], dim=1))
+                cm_feats_f, cm_f = self.cam_motion_decoders[level](
+                    torch.cat([out_corr_relu_f, x1, x2, x1_out_s, cm_feats_f], dim=1))
+                cm_feats_b, cm_b = self.cam_motion_decoders[level](
+                    torch.cat([out_corr_relu_b, x2, x1, x2_out_s, cm_feats_b], dim=1))
                 # cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
                 #     torch.cat([r1, r2, x1_out_s, cm_feats_f_r], dim=1))
                 # cm_feats_b_r, cm_b_r = self.cam_motion_decoders[level](
@@ -255,9 +255,9 @@ class CNet(nn.Module):
             else:
                 # TODO: could feed in decomposed flow here instead
                 flow_res_f, disp_l1 = self.context_networks(
-                    torch.cat([x1_out, flow_f, disp_l1, cm_feats_f_l, mask_f_l], dim=1))
+                    torch.cat([x1_out, flow_f, disp_l1, cm_feats_f, mask_f_l], dim=1))
                 flow_res_b, disp_l2 = self.context_networks(
-                    torch.cat([x2_out, flow_b, disp_l2, cm_feats_b_l, mask_b_l], dim=1))
+                    torch.cat([x2_out, flow_b, disp_l2, cm_feats_b, mask_b_l], dim=1))
 
                 flow_f = flow_f + flow_res_f
                 flow_b = flow_b + flow_res_b
@@ -311,10 +311,10 @@ class CNet(nn.Module):
         output_dict['rigidity_f'] = upsample_outputs_as(rigidity_masks_f[::-1], x1_rev)
         output_dict['rigidity_b'] = upsample_outputs_as(rigidity_masks_b[::-1], x1_rev)
 
-        output_dict['cms_f_l'] = cam_motions_f_l[::-1]
-        output_dict['cms_f_r'] = cam_motions_f_r[::-1]
-        output_dict['cms_b_l'] = cam_motions_b_l[::-1]
-        output_dict['cms_b_r'] = cam_motions_b_r[::-1]
+        output_dict['cms_f'] = cam_motions_f[::-1]
+        output_dict['cms_b'] = cam_motions_b[::-1]
+        # output_dict['cms_f_r'] = cam_motions_f_r[::-1]
+        # output_dict['cms_b_r'] = cam_motions_b_r[::-1]
 
         return output_dict
 
@@ -389,8 +389,8 @@ class CNet(nn.Module):
                   output_dict_r['rigidity_b'][ii], [3])
                 
                 # [tx, ty, tz, rx, ry, rz]
-                output_dict_r['cms_f_l'][ii] = cm_horizontal_flip(output_dict_r['cms_f_l'][ii])
-                output_dict_r['cms_b_l'][ii] = cm_horizontal_flip(output_dict_r['cms_b_l'][ii])
+                output_dict_r['cms_f'][ii] = cm_horizontal_flip(output_dict_r['cms_f'][ii])
+                output_dict_r['cms_b'][ii] = cm_horizontal_flip(output_dict_r['cms_b'][ii])
                 # output_dict_r['cms_f_r'][ii] = cm_horizontal_flip(output_dict_r['cms_f_r'][ii])
                 # output_dict_r['cms_b_r'][ii] = cm_horizontal_flip(output_dict_r['cms_b_r'][ii])
 
