@@ -48,12 +48,12 @@ class CNet(nn.Module):
                 num_ch_in = self.dim_corr + ch
                 # out_corr_relu, x1, x2, x_out (64 s+d)
                 num_ch_in_mask = self.dim_corr + ch + ch + 64
-                num_ch_in_cm = ch + ch + 32  # removed self.dim_corr
+                num_ch_in_cm = self.dim_corr + ch + ch + 32 
             else:
                 num_ch_in = self.dim_corr + ch + 64 + 3 + 1
                 # out_corr_relu, x1, x2, x_out(s & d combined -> 64 ch instead of 32), rigidity_mask_upsampled
                 num_ch_in_mask = self.dim_corr + ch + ch + 64 + 1
-                num_ch_in_cm = ch + ch + 32 + 6  # removed  self.dim_corr
+                num_ch_in_cm = self.dim_corr + ch + ch + 32 + 6
 
                 self.upconv_layers.append(upconv(64, 64, 3, 2))
 
