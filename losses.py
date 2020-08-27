@@ -211,7 +211,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                          disp_occ_l1, disp_occ_l2,
                          img_l1_aug, img_r1_aug,
                          img_l2_aug, img_r2_aug,
-                         motion_mask_f, motion_mask_b
+                         motion_mask_f, motion_mask_b,
                          k_l1_aug, k_l2_aug,
                          k_r1_aug, k_r2_aug,
                          cam_l2r,):
@@ -235,11 +235,9 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         depth_l1 = disp2depth_kitti(disp_l1, k_l1_aug[:, 0, 0], baseline=self._args['baseline'])
         depth_r1 = _apply_disparity(depth_l1, disp_l1)
 
-        # XXX: Potential bug here (order of operations for)
-        cms_f_warp = torch.matmul(pose_vec2mat(cms_f[0]), cam_l2r)
 
         cam_flow_l = pose2flow(depth_l1,
-                               cms_f_warp,
+                               cms_f[0],
                                k_l1_aug,
                                torch.inverse(k_l1_aug))
 
@@ -247,6 +245,13 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                                cms_f[1],
                                k_r1_aug,
                                torch.inverse(k_r1_aug))
+
+        cms_f_warp = torch.matmul(pose_vec2mat(cms_f[1]), cam_r2l)
+        cam_flow_r_warp = pose2flow(depth_l1,
+                                    None,
+                                    k_l1_aug,
+                                    torch.inverse(k_l1_aug),
+                                    cms_f_warp)
 
         ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r).mean() 
 
@@ -278,10 +283,10 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         mask_consensus_loss = tf.binary_cross_entropy(motion_mask_f, census_target_mask)
 
         return stereo_consistency_loss, \
+            ego_consistency_loss, \
             static_scene_flow_consistency_loss, \
             cam_motion_reconstruction_loss, \
             mask_consensus_loss
-            # ego_consistency_loss, \
 
     def depth_loss_left_img(self, disp_l, disp_r, img_l_aug, img_r_aug, ii):
 
@@ -361,7 +366,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                                                  disp_occ_l1, disp_occ_l2,
                                                  img_l1_aug, img_r1_aug,
                                                  img_l2_aug, img_r2_aug,
-                                                 motion_mask_f, motion_mask_b
+                                                 motion_mask_f, motion_mask_b,
                                                  k_l1_aug, k_l2_aug,
                                                  k_r1_aug, k_r2_aug,
                                                  cam_l2r)
@@ -411,8 +416,12 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         loss_sf_2d = 0
         loss_sf_3d = 0
         loss_sf_sm = 0
-        loss_cms_warp = 0
-        loss_
+
+        loss_cm = 0
+        loss_cross_cons = 0
+        loss_egomotion_cons = 0
+        loss_mask = 0
+        loss_static_cons = 0
 
         k_l1_aug = target_dict['input_k_l1_aug']
         k_l2_aug = target_dict['input_k_l2_aug']
