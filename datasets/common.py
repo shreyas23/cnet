@@ -122,10 +122,10 @@ def read_calib_into_dict(path_dir):
         intrinsic_dict_l[date] = P_rect_02[:3, :3]
         intrinsic_dict_r[date] = P_rect_03[:3, :3]
 
-        R_02 = calib_dict['R_02'].reshape(3, 3)
-        t_02 = calib_dict['T_02'].reshape(3, 1)
-        R_03 = calib_dict['R_03'].reshape(3, 3)
-        t_03 = calib_dict['T_03'].reshape(3, 1)
+        R_02 = file_data['R_02'].reshape(3, 3)
+        t_02 = file_data['T_02'].reshape(3, 1)
+        R_03 = file_data['R_03'].reshape(3, 3)
+        t_03 = file_data['T_03'].reshape(3, 1)
 
         T_03 = np.concatenate([np.concatenate([R_03, t_03], axis=1), np.zeros((1, 4))], axis=0)
         T_20 = np.concatenate([R_02.T, -t_02], axis=1)

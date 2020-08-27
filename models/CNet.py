@@ -85,8 +85,8 @@ class CNet(nn.Module):
         l1_pyramid = self.feature_pyramid_extractor(l1_raw) + [l1_raw]
         l2_pyramid = self.feature_pyramid_extractor(l2_raw) + [l2_raw]
 
-        r1_pyramid = self.feature_pyramid_extractor(r1_raw) + [r1_raw]
-        r2_pyramid = self.feature_pyramid_extractor(r2_raw) + [r2_raw]
+        # r1_pyramid = self.feature_pyramid_extractor(r1_raw) + [r1_raw]
+        # r2_pyramid = self.feature_pyramid_extractor(r2_raw) + [r2_raw]
 
         # outputs
         sceneflows_f = []
@@ -100,10 +100,10 @@ class CNet(nn.Module):
         rigidity_masks_f = []
         rigidity_masks_b = []
 
-        cam_motions_f_l = []
-        cam_motions_f_r = []
-        cam_motions_b_l = []
-        cam_motions_b_r = []
+        cam_motions_f = []
+        cam_motions_b = []
+        # cam_motions_f_r = []
+        # cam_motions_b_r = []
 
         disps_l1 = []
         disps_l1_s = []
@@ -113,28 +113,29 @@ class CNet(nn.Module):
         disps_l2_s = []
         disps_l2_d = []
 
-        for level, (x1, x2, r1, r2) in enumerate(zip(l1_pyramid, l2_pyramid, r1_pyramid, r2_pyramid)):
+        # for level, (x1, x2, r1, r2) in enumerate(zip(l1_pyramid, l2_pyramid, r1_pyramid, r2_pyramid)):
+        for level, (x1, x2) in enumerate(zip(l1_pyramid, l2_pyramid)):
 
             # warping
             if level == 0:
                 x2_warp = x2
                 x1_warp = x1
-                r2_warp = r2
-                r1_warp = r1
+                # r2_warp = r2
+                # r1_warp = r1
             else:
                 flow_f = interpolate2d_as(flow_f, x1, mode="bilinear")
                 flow_b = interpolate2d_as(flow_b, x1, mode="bilinear")
                 disp_l1 = interpolate2d_as(disp_l1, x1, mode="bilinear")
                 disp_l2 = interpolate2d_as(disp_l2, x1, mode="bilinear")
 
-                cm_feats_f_l = interpolate2d_as(cm_feats_f_l, x1, mode="bilinear")
-                cm_feats_f_r = interpolate2d_as(cm_feats_f_r, x1, mode="bilinear")
-                cm_feats_b_l = interpolate2d_as(cm_feats_b_l, x1, mode="bilinear")
-                cm_feats_b_r = interpolate2d_as(cm_feats_b_r, x1, mode="bilinear")
+                cm_feats_f = interpolate2d_as(cm_feats_f, x1, mode="bilinear")
+                cm_feats_b = interpolate2d_as(cm_feats_b, x1, mode="bilinear")
+                # cm_feats_f_r = interpolate2d_as(cm_feats_f_r, x1, mode="bilinear")
+                # cm_feats_b_r = interpolate2d_as(cm_feats_b_r, x1, mode="bilinear")
 
                 x1_out = self.upconv_layers[level-1](x1_out)
                 x2_out = self.upconv_layers[level-1](x2_out)
-                # becuase K can be changing when doing augmentation
+                # because K can be changing when doing augmentation
                 x2_warp = self.warping_layer_sf(
                     x2, flow_f, disp_l1, k_l1, input_dict['aug_size'])
                 x1_warp = self.warping_layer_sf(
@@ -146,10 +147,11 @@ class CNet(nn.Module):
             out_corr_relu_f = self.leakyRELU(out_corr_f)
             out_corr_relu_b = self.leakyRELU(out_corr_b)
 
-            out_corr_f_r = Correlation.apply(r1, r2_warp, self.corr_params)
-            out_corr_b_r = Correlation.apply(r2, r1_warp, self.corr_params)
-            out_corr_relu_f_r = self.leakyRELU(out_corr_f_r)
-            out_corr_relu_b_r = self.leakyRELU(out_corr_b_r)
+            # if self._training:
+            #   out_corr_f_r = Correlation.apply(r1, r2_warp, self.corr_params)
+            #   out_corr_b_r = Correlation.apply(r2, r1_warp, self.corr_params)
+            #   out_corr_relu_f_r = self.leakyRELU(out_corr_f_r)
+            #   out_corr_relu_b_r = self.leakyRELU(out_corr_b_r)
 
             # joint estimator
             # passing in x1_out flow_f instead of x1_out_s and flow_f_s
@@ -166,14 +168,14 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_b, x2], dim=1))
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                cm_feats_f_l, cm_f_l = self.cam_motion_decoders[level](
+                cm_feats_f_l, cm_f = self.cam_motion_decoders[level](
                     torch.cat([out_corr_relu_f, x1, x2, x1_out_s], dim=1))
-                cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s], dim=1))
-                cm_feats_b_l, cm_b_l = self.cam_motion_decoders[level](
+                # cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
+                #     torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s], dim=1))
+                cm_feats_b_l, cm_b = self.cam_motion_decoders[level](
                     torch.cat([out_corr_relu_b, x2, x1, x2_out_s], dim=1))
-                cm_feats_b_r, cm_b_r = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_b_r, r2, r1, x2_out_s], dim=1))
+                # cm_feats_b_r, cm_b_r = self.cam_motion_decoders[level](
+                #     torch.cat([out_corr_relu_b_r, r2, r1, x2_out_s], dim=1))
 
                 mask_f_l, mask_f_l_upsampled = self.mask_decoders[level](
                     torch.cat([out_corr_relu_f, x1, x2, x1_out], dim=1))
@@ -202,14 +204,14 @@ class CNet(nn.Module):
                     torch.cat([out_corr_relu_b, x2, x2_out, flow_b, disp_l2], dim=1))
                 x2_out = torch.cat([x2_out_s, x2_out_d], dim=1)
 
-                cm_feats_f_l, cm_f_l = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_f, x1, x2, x1_out_s, cm_feats_f_l], dim=1))
-                cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s, cm_feats_f_r], dim=1))
-                cm_feats_b_l, cm_b_l = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_b, x2, x1, x2_out_s, cm_feats_b_l], dim=1))
-                cm_feats_b_r, cm_b_r = self.cam_motion_decoders[level](
-                    torch.cat([out_corr_relu_b_r, r2, r1, x2_out_s, cm_feats_b_r], dim=1))
+                cm_feats_f_l, cm_f = self.cam_motion_decoders[level](
+                    torch.cat([x1, x2, x1_out_s, cm_feats_f_l], dim=1))
+                cm_feats_b_l, cm_b = self.cam_motion_decoders[level](
+                    torch.cat([x2, x1, x2_out_s, cm_feats_b_l], dim=1))
+                # cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
+                #     torch.cat([r1, r2, x1_out_s, cm_feats_f_r], dim=1))
+                # cm_feats_b_r, cm_b_r = self.cam_motion_decoders[level](
+                #     torch.cat([r2, r1, x2_out_s, cm_feats_b_r], dim=1))
 
                 mask_f_l, mask_f_l_upsampled = self.mask_decoders[level](
                     torch.cat([out_corr_relu_f, x1, x2, x1_out, mask_f_l_upsampled], dim=1))
@@ -249,10 +251,10 @@ class CNet(nn.Module):
                 rigidity_masks_f.append(mask_f_l)
                 rigidity_masks_b.append(mask_b_l)
 
-                cam_motions_f_l.append(cm_f_l)
-                cam_motions_f_r.append(cm_f_r)
-                cam_motions_b_l.append(cm_b_l)
-                cam_motions_b_r.append(cm_b_r)
+                cam_motions_f.append(cm_f)
+                cam_motions_b.append(cm_b)
+                # cam_motions_f_r.append(cm_f_r)
+                # cam_motions_b_r.append(cm_b_r)
 
             else:
                 # TODO: could feed in decomposed flow here instead
@@ -283,10 +285,10 @@ class CNet(nn.Module):
                 rigidity_masks_f.append(mask_f_l)
                 rigidity_masks_b.append(mask_b_l)
 
-                cam_motions_f_l.append(cm_f_l)
-                cam_motions_f_r.append(cm_f_r)
-                cam_motions_b_l.append(cm_b_l)
-                cam_motions_b_r.append(cm_b_r)
+                cam_motions_f.append(cm_f)
+                cam_motions_b.append(cm_b)
+                # cam_motions_f_r.append(cm_f_r)
+                # cam_motions_b_r.append(cm_b_r)
                 break
 
         x1_rev = l1_pyramid[::-1]
@@ -392,9 +394,9 @@ class CNet(nn.Module):
                 
                 # [tx, ty, tz, rx, ry, rz]
                 output_dict_r['cms_f_l'][ii] = cm_horizontal_flip(output_dict_r['cms_f_l'][ii])
-                output_dict_r['cms_f_r'][ii] = cm_horizontal_flip(output_dict_r['cms_f_r'][ii])
                 output_dict_r['cms_b_l'][ii] = cm_horizontal_flip(output_dict_r['cms_b_l'][ii])
-                output_dict_r['cms_b_r'][ii] = cm_horizontal_flip(output_dict_r['cms_b_r'][ii])
+                # output_dict_r['cms_f_r'][ii] = cm_horizontal_flip(output_dict_r['cms_f_r'][ii])
+                # output_dict_r['cms_b_r'][ii] = cm_horizontal_flip(output_dict_r['cms_b_r'][ii])
 
             output_dict['output_dict_r'] = output_dict_r
 
