@@ -122,18 +122,19 @@ def read_calib_into_dict(path_dir):
         intrinsic_dict_l[date] = P_rect_02[:3, :3]
         intrinsic_dict_r[date] = P_rect_03[:3, :3]
 
+        # load trans. from 00 to 02
         R_02 = file_data['R_02'].reshape(3, 3)
         t_02 = file_data['T_02'].reshape(3, 1)
-        R_03 = file_data['R_03'].reshape(3, 3)
-        t_03 = file_data['T_03'].reshape(3, 1)
-
-        T_03 = np.concatenate([np.concatenate([R_03, t_03], axis=1), np.zeros((1, 4))], axis=0)
-        T_20 = np.concatenate([R_02.T, -t_02], axis=1)
-
         T_02 = np.concatenate([np.concatenate([R_02, t_02], axis=1), np.zeros((1, 4))], axis=0)
-        T_30 = np.concatenate([R_03.T, -t_03], axis=1)
 
+        # load trans. from 03 to 00
+        R_03 = np.eye(4)
+        R_03[:3, :3] = file_data['R_03'].reshape(3, 3)
+        t_03 = np.eye(4)
+        t_03[:3, -1] = -file_data['T_03']
+        T_30 = np.dot(R_03.T, t_03)
+
+        # calc. trans from 03 to 02
         cam_r2l[date] = np.dot(T_30, T_02)
-        cam_l2r[date] = np.dot(T_20, T_03)
 
-    return intrinsic_dict_l, intrinsic_dict_r, cam_r2l, cam_l2r
+    return intrinsic_dict_l, intrinsic_dict_r, cam_r2l

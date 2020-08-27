@@ -191,8 +191,7 @@ class KITTI_Raw(data.Dataset):
         self.intrinsic_dict_l = {}
         self.intrinsic_dict_r = {}        
         self.cam_r2l = {}
-        self.cam_l2r = {}
-        self.intrinsic_dict_l, self.intrinsic_dict_r, self.cam_r2l, self.cam_l2r = read_calib_into_dict(path_dir)
+        self.intrinsic_dict_l, self.intrinsic_dict_r, self.cam_r2l = read_calib_into_dict(path_dir)
 
         self._to_tensor = vision_transforms.Compose([
             vision_transforms.ToPILImage(),
@@ -267,6 +266,7 @@ class KITTI_Raw(data.Dataset):
                 "input_k_r1": k_l1,
                 "input_k_l2": k_r1,
                 "input_k_r2": k_l1,
+                "cam_r2l"   : self.cam_r2l[datename]
             }
             example_dict.update(common_dict)
 
@@ -280,6 +280,7 @@ class KITTI_Raw(data.Dataset):
                 "input_k_r1": k_r1,
                 "input_k_l2": k_l1,
                 "input_k_r2": k_r1,
+                "cam_r2l"   : self.cam_r2l[datename]
             }
             example_dict.update(common_dict)
 
