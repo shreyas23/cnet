@@ -48,12 +48,12 @@ class CNet(nn.Module):
                 num_ch_in = self.dim_corr + ch
                 # out_corr_relu, x1, x2, x_out (64 s+d)
                 num_ch_in_mask = self.dim_corr + ch + ch + 64
-                num_ch_in_cm = self.dim_corr + ch + ch + 32
+                num_ch_in_cm = ch + ch + 32  # removed self.dim_corr
             else:
                 num_ch_in = self.dim_corr + ch + 64 + 3 + 1
                 # out_corr_relu, x1, x2, x_out(s & d combined -> 64 ch instead of 32), rigidity_mask_upsampled
                 num_ch_in_mask = self.dim_corr + ch + ch + 64 + 1
-                num_ch_in_cm = self.dim_corr + ch + ch + 32 + 6
+                num_ch_in_cm = ch + ch + 32 + 6  # removed  self.dim_corr
 
                 self.upconv_layers.append(upconv(64, 64, 3, 2))
 
@@ -170,10 +170,10 @@ class CNet(nn.Module):
 
                 cm_feats_f_l, cm_f = self.cam_motion_decoders[level](
                     torch.cat([out_corr_relu_f, x1, x2, x1_out_s], dim=1))
-                # cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
-                #     torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s], dim=1))
                 cm_feats_b_l, cm_b = self.cam_motion_decoders[level](
                     torch.cat([out_corr_relu_b, x2, x1, x2_out_s], dim=1))
+                # cm_feats_f_r, cm_f_r = self.cam_motion_decoders[level](
+                #     torch.cat([out_corr_relu_f_r, r1, r2, x1_out_s], dim=1))
                 # cm_feats_b_r, cm_b_r = self.cam_motion_decoders[level](
                 #     torch.cat([out_corr_relu_b_r, r2, r1, x2_out_s], dim=1))
 
@@ -182,14 +182,10 @@ class CNet(nn.Module):
                 mask_b_l, mask_b_l_upsampled = self.mask_decoders[level](
                     torch.cat([out_corr_relu_b, x2, x1, x2_out], dim=1))
 
-                flow_f = apply_rigidity_mask(
-                    flow_f_s, flow_f_d, mask_f_l)
-                flow_b = apply_rigidity_mask(
-                    flow_b_s, flow_b_d, mask_b_l)
-                disp_l1 = apply_rigidity_mask(
-                    disp_l1_s, disp_l1_d, mask_f_l)
-                disp_l2 = apply_rigidity_mask(
-                    disp_l2_s, disp_l2_d, mask_b_l)
+                flow_f = apply_rigidity_mask(flow_f_s, flow_f_d, mask_f_l)
+                flow_b = apply_rigidity_mask(flow_b_s, flow_b_d, mask_b_l)
+                disp_l1 = apply_rigidity_mask(disp_l1_s, disp_l1_d, mask_f_l)
+                disp_l2 = apply_rigidity_mask(disp_l2_s, disp_l2_d, mask_b_l)
 
             else:
                 x1_out_s, flow_f_s_res, disp_l1_s = self.static_flow_estimators[level](
