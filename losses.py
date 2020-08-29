@@ -214,7 +214,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                          motion_mask_f, motion_mask_b,
                          k_l1_aug, k_l2_aug,
                          k_r1_aug, k_r2_aug,
-                         cam_l2r,):
+                         cam_r2l):
 
         # cross term image reconstruction loss
         cross_warp_img_f = _apply_disparity(img_l1_warp, disp_l2)
@@ -234,7 +234,6 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         # egomotion consistency loss
         depth_l1 = disp2depth_kitti(disp_l1, k_l1_aug[:, 0, 0], baseline=self._args['baseline'])
         depth_r1 = _apply_disparity(depth_l1, disp_l1)
-
 
         cam_flow_l = pose2flow(depth_l1,
                                cms_f[0],
@@ -425,17 +424,25 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
 
         k_l1_aug = target_dict['input_k_l1_aug']
         k_l2_aug = target_dict['input_k_l2_aug']
+        k_r1_aug = target_dict['input_k_r1_aug']
+        k_r2_aug = target_dict['input_k_r2_aug']
         aug_size = target_dict['aug_size']
+        cam_r2l = target_dict['cam_r2l']
 
+        cms_f_r = output_dict['output_dict_r']['cms_f_r']
+        cms_b_r = output_dict['output_dict_r']['cms_b_r']
         disp_r1_dict = output_dict['output_dict_r']['disp_l1']
         disp_r2_dict = output_dict['output_dict_r']['disp_l2']
 
-        for ii, (sf_f, sf_b, disp_l1, disp_l2, disp_r1, disp_r2) in enumerate(zip(output_dict['flow_f'],
-                                                                                  output_dict['flow_b'],
-                                                                                  output_dict['disp_l1'],
-                                                                                  output_dict['disp_l2'],
-                                                                                  disp_r1_dict,
-                                                                                  disp_r2_dict)):
+        for ii, (sf_f, sf_b,
+                 cms_f_l, cms_b_l, cms_f_r, cms_b_r,
+                 motion_mask_f, motion_mask_b,
+                 disp_l1, disp_l2,
+                 disp_r1, disp_r2) in enumerate(zip(output_dict['flow_f'], output_dict['flow_b'],
+                                                    output_dict['cms_f'], output_dict['cms_b'], cms_f_r, cms_b_r,
+                                                    output_dict['disp_l1'], output_dict['disp_l2'],
+                                                    output_dict['rigidity_f'], output_dict['rigidity_b'],
+                                                    disp_r1_dict, disp_r2_dict)):
 
             assert(sf_f.size()[2:4] == sf_b.size()[2:4])
             assert(sf_f.size()[2:4] == disp_l1.size()[2:4])
@@ -455,6 +462,9 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
             loss_dp_sum = loss_dp_sum + \
                 (loss_disp_l1 + loss_disp_l2) * self._weights[ii]
 
+            cms_f = [cms_f_l, cms_f_r]
+            cms_b = [cms_b_l, cms_b_r]
+
             # Sceneflow Loss
             loss_sceneflow, loss_im, loss_pts, loss_3d_s, loss_cons = self.sceneflow_loss(sf_f, sf_b,  # sf: [static, dynamic]
                                                                                           cms_f, cms_b,  # cms: [left, right]
@@ -465,7 +475,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                                                                                           motion_mask_f, motion_mask_b,
                                                                                           k_l1_aug, k_l2_aug,
                                                                                           k_r1_aug, k_r2_aug,
-                                                                                          cam_l2r, aug_size, ii):
+                                                                                          cam_r2l, aug_size, ii)
 
             # consistency loss
             # loss_consistency = torch.sum([w * loss for w, loss in zip(self._consistency_weights, losses_consistency)])
