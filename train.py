@@ -8,7 +8,8 @@ from torch.utils.data import Dataset, DataLoader
 from torch.optim import Adam, SGD
 
 from models.CNet import CNet 
-from losses import Loss_SceneFlow_SelfSup, Loss_SceneFlow_SemiSup
+# from losses import Loss_SceneFlow_SelfSup, Loss_SceneFlow_SemiSup
+from loss_consistency import Loss_SceneFlow_SelfSup_Consistency
 from augmentations import Augmentation_SceneFlow, Augmentation_SceneFlow_Carla
 from datasets.kitti_raw_monosf import CarlaDataset, KITTI_Raw_KittiSplit_Train, KITTI_Raw_KittiSplit_Valid
 
@@ -17,9 +18,12 @@ from torchsummary import summary
 parser = argparse.ArgumentParser(description="Self Supervised Joint Learning of Scene Flow and Motion Segmentation",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-parser.add_argument('--dataset_name', help='KITTI or Carla', required=True)
+parser.add_argument('--dataset_name', default='KITTI', help='KITTI or Carla')
 parser.add_argument('--data_root', help='path to dataset', required=True)
 # parser.add_argument('--kitti_2015_root', help='path to dataset', required=True)
+parser.add_argument('--finetuning', type=bool, default=False, help='finetuning on supervised data')
+parser.add_argument('--evaluation', type=bool, default=False, help='evaluating on data')
+parser.add_argument('--num-views', type=int, default=2, help="number of views present in training data")
 parser.add_argument('--exp_name', type=str, default='test', help='name of experiment, chkpts stored in checkpoints/experiment')
 parser.add_argument('--resume_from_epoch', default=0, help='resume from checkpoint (using experiment name)')
 parser.add_argument('--epochs', type=int, default=1, help='number of epochs to run')
@@ -44,7 +48,7 @@ def main():
     train_dataset = KITTI_Raw_KittiSplit_Train(args, DATA_ROOT)
     val_dataset = KITTI_Raw_KittiSplit_Valid(args, DATA_ROOT)
     augmentations = Augmentation_SceneFlow(args)
-    loss = Loss_SceneFlow_SelfSup(args)
+    loss = Loss_SceneFlow_SelfSup_Consistency(args)
   elif DATASET_NAME == 'CARLA':
     train_dataset = CarlaDataset(args, DATA_ROOT)
     val_dataset = None
@@ -67,17 +71,22 @@ def main():
 
   params = model.parameters()
   num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-  print(num_params)
 
   optimizer = Adam(model.parameters(), lr=args.lr, betas=[args.momentum, args.beta], weight_decay=args.weight_decay)
 
-    # run training loop
-  # for epoch in range(args.resume_from_epoch, args.total_epochs + 1):
-  #   print(f"Training epoch: {epoch + 1}")
-  #   loss_dict = train_one_epoch(model, train_dataloader, optimizer, augmentations)
+  for data in train_dataloader:
+    step(args, data, model, loss, augmentations, optimizer)
+    break
 
-  #   if lr_scheduler is not None:
-  #     lr_scheduler.step(epoch)
+  # run training loop
+  # for epoch in range(args.resume_from_epoch, args.total_epochs + 1):
+    # print(f"Training epoch: {epoch + 1}")
+    # loss_dict = train_one_epoch(model, train_dataloader, optimizer, augmentations)
+
+    # do ya logging bbg0rl
+
+    # if lr_scheduler is not None:
+    #   lr_scheduler.step(epoch)
 
   return
 
@@ -88,7 +97,7 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
   tensor_keys = input_keys + target_keys
 
   # Possibly transfer to Cuda
-  if self._args.cuda:
+  if args.cuda:
     for k, v in data_dict.items():
       if k in tensor_keys:
         data_dict[k] = v.cuda(non_blocking=True)
@@ -99,21 +108,19 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
   
   for k, t in data_dict.items():
     if k in input_keys:
-      data_dict[key] = t.requires_grad_(True)
+      data_dict[k] = t.requires_grad_(True)
     if k in target_keys:
-      data_dict[key] = t.requires_grad_(False)
+      data_dict[k] = t.requires_grad_(False)
 
-  optimizer.zero_grad()
-  output_dict = model(data)
-  loss_dict = loss(output_dict)
+  # optimizer.zero_grad()
+  output_dict = model(data_dict)
+  loss_dict = loss(output_dict, data_dict)
 
   training_loss = loss_dict['train_loss']
 
   assert (not np.isnan(training_loss.item())), "training_loss is NaN"
 
   return loss_dict, output_dict
-
-
 
 def train_one_epoch(model, loss, dataloader, optimizer, augmentations):
 
