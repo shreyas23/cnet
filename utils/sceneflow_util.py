@@ -5,7 +5,7 @@ from torch import nn
 import torch.nn.functional as tf
 
 import numpy as np
-from .inverse_warp import pose_vec2mat
+from .inverse_warp import pose_vec2mat, check_sizes
 
 def post_processing(l_disp, r_disp):
 
@@ -22,13 +22,15 @@ def cm_horizontal_flip(cam_motion, dataset_name="KITTI"):
   """
   [tx, ty, tz, rx, ry, rz] -> [-tx, ty, tz, rx, ry, pi - rz]
   """
-  assert(len(cam_motion) == 6)
+  check_sizes(cam_motion, 'pose', 'B6')
   if dataset_name == "KITTI":
-    cam_motion[0] = -cam_motion[0]
-    cam_motion[-2] = np.pi - cam_motion[-2]
+    for i in range(len(cam_motion)):
+      cam_motion[i][0] *= -1
+      cam_motion[i][-2] = np.pi - cam_motion[i][-2]
   elif dataset_name == "CARLA":
-    cam_motion[1] = -cam_motion[1]
-    cam_motion[-1] = np.pi - cam_motion[-1]
+    for i in range(len(cam_motion)):
+      cam_motion[i][1] *= -1
+      cam_motion[i][-1] = np.pi - cam_motion[i][-1]
   return cam_motion
 
 
@@ -46,9 +48,7 @@ def depth2disp(f, depth, baseline=0.54):
 
 
 def disp2depth_kitti(pred_disp, k_value, baseline=0.54):
-
-    pred_depth = k_value.unsqueeze(1).unsqueeze(
-        1).unsqueeze(1) * baseline / (pred_disp + 1e-8)
+    pred_depth = k_value.unsqueeze(1).unsqueeze(1).unsqueeze(1) * baseline / (pred_disp + 1e-8)
     pred_depth = torch.clamp(pred_depth, 1e-3, 80)
 
     return pred_depth

@@ -67,7 +67,7 @@ def main():
   if args.cuda:
     model = model.cuda()
 
-  summary(model, None)
+  # summary(model, None)
 
   params = model.parameters()
   num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -116,9 +116,10 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
   output_dict = model(data_dict)
   loss_dict = loss(output_dict, data_dict)
 
-  training_loss = loss_dict['train_loss']
+  for k, v in loss_dict.items():
+    print(f"{k}: {v}")
 
-  assert (not np.isnan(training_loss.item())), "training_loss is NaN"
+  # assert (not np.isnan(training_loss.item())), "training_loss is NaN"
 
   return loss_dict, output_dict
 

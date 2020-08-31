@@ -20,8 +20,9 @@ def get_grid(x):
 
 
 def apply_rigidity_mask(static, dynamic, rigidity_mask, apply_conv=False):
-    _, ch, h, w = static.shape
-    merged = static * (1-rigidity_mask) + dynamic * rigidity_mask
+    _, ch, _, _ = static.shape
+    rigidity_mask_bool = 1. * (rigidity_mask >=0.5).repeat(1, ch, 1, 1).float()
+    merged = static * (1. - rigidity_mask_bool) + dynamic * rigidity_mask_bool
     if apply_conv:
         merged = conv(ch, ch)
     return merged
@@ -179,7 +180,7 @@ class CameraMotionDecoder(nn.Module):
     def forward(self, pyr_feat):
         x = self.convs(pyr_feat)
         motion_pred = x.mean(3).mean(2) * 0.01
-        return x, motion_pred.squeeze()
+        return x, motion_pred
 
 
 class MaskNetDecoder(nn.Module):

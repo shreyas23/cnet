@@ -29,10 +29,7 @@ class CarlaDataset(data.Dataset):
         self._crop_size = crop_size
         self._sequences = ['Town01', 'Town02', 'Town03']
         self._cam2cams = torch.from_numpy(np.loadtxt(os.path.join(data_root, 'cam2cam.txt')))
-        if 'baseline' in args:
-            self._baseline = args['baseline']
-        else:
-            self._baseline = 0.075
+        self._baseline = args.baseline
         
         self._image_list = []
         self._pose_list = []
@@ -266,7 +263,8 @@ class KITTI_Raw(data.Dataset):
                 "input_k_r1": k_l1,
                 "input_k_l2": k_r1,
                 "input_k_r2": k_l1,
-                "cam_r2l"   : self.cam_r2l[datename]
+                "input_cam_r2l"   : self.cam_r2l[datename],
+                "baseline"  : 0.54  # XXX: This is only for KITTI
             }
             example_dict.update(common_dict)
 
@@ -280,7 +278,8 @@ class KITTI_Raw(data.Dataset):
                 "input_k_r1": k_r1,
                 "input_k_l2": k_l1,
                 "input_k_r2": k_r1,
-                "cam_r2l"   : self.cam_r2l[datename]
+                "input_cam_r2l"   : self.cam_r2l[datename],
+                "baseline"  : 0.54  # XXX: This is only for KITTI
             }
             example_dict.update(common_dict)
 

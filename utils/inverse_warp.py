@@ -191,12 +191,12 @@ def flow_warp(img, flow, padding_mode='zeros'):
     return img_tf
 
 
-def pose2flow(depth, pose, intrinsics, intrinsics_inv, rotation_mode='euler', padding_mode=None, pose_mat=None):
+def pose2flow(depth, pose, intrinsics, intrinsics_inv, rotation_mode='euler', pose_mat=None, padding_mode=None):
     """
     Converts pose parameters to rigid optical flow
     """
     check_sizes(depth, 'depth', 'BHW')
-    if pose:
+    if pose is not None:
       check_sizes(pose, 'pose', 'B6')
     else:
       assert(pose_mat is not None)
