@@ -293,6 +293,10 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         cms_f_warp = torch.matmul(pose_vec2mat(cms_f[1]), cam_r2l)
         cam_flow_r_warp = pose2flow(depth_r1, None, k_1_aug[1], torch.inverse(k_1_aug[1]), pose_mat=cms_f_warp)
 
+        print(pose_vec2mat(cms_f[0]))
+        print(pose_vec2mat(cms_f[1]))
+        print(cms_f_warp)
+
         ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r_warp).mean() 
         assert (not torch.isnan(ego_consistency_loss)), "ego consistency loss is nan"
 
@@ -310,8 +314,8 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         static_warp_error = static_warp_l1_error # + static_warp_r1_error
         cam_occ_map_l_f = _adaptive_disocc_detection(cam_flow_l_b)
         # cam_occ_map_r_f = _adaptive_disocc_detection(cam_flow_r)
-        cam_motion_loss = static_warp_error[~rigidity_mask_bool_f * cam_occ_map_l_f].mean() 
-        assert (not torch.isnan(cam_motion_loss)), "mask consensus loss is nan"
+        cam_motion_loss = static_warp_error[~rigidity_mask_bool_f & cam_occ_map_l_f].mean() 
+        assert (not torch.isnan(cam_motion_loss)), f"mask motion loss is nan: {static_warp_error.mean()}"
         
         # mask consensus loss
         flow_f = projectSceneFlow2Flow(k_1_aug[0], sfs_f[0], disps_1[0])

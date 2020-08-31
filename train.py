@@ -14,6 +14,7 @@ from augmentations import Augmentation_SceneFlow, Augmentation_SceneFlow_Carla
 from datasets.kitti_raw_monosf import CarlaDataset, KITTI_Raw_KittiSplit_Train, KITTI_Raw_KittiSplit_Valid
 
 from torchsummary import summary
+from time import time
 
 parser = argparse.ArgumentParser(description="Self Supervised Joint Learning of Scene Flow and Motion Segmentation",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -91,6 +92,7 @@ def main():
   return
 
 def step(args, data_dict, model, loss, augmentations, optimizer):
+  start = time()
   # Get input and target tensor keys
   input_keys = list(filter(lambda x: "input" in x, data_dict.keys()))
   target_keys = list(filter(lambda x: "target" in x, data_dict.keys()))
@@ -116,10 +118,10 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
   output_dict = model(data_dict)
   loss_dict = loss(output_dict, data_dict)
 
-  for k, v in loss_dict.items():
-    print(f"{k}: {v}")
+  # for k, v in loss_dict.items():
+  #   print(f"{k}: {v}")
 
-  # assert (not np.isnan(training_loss.item())), "training_loss is NaN"
+  # assert (not torch.isnan(training_loss.item())), "training_loss is NaN"
 
   return loss_dict, output_dict
 
