@@ -135,6 +135,6 @@ def read_calib_into_dict(path_dir):
         T_30 = np.dot(R_03.T, t_03)
 
         # calc. trans from 03 to 02
-        cam_r2l[date] = np.dot(T_30, T_02)[:-1].astype(np.float32)
+        cam_r2l[date] = np.dot(T_30, T_02).astype(np.float32)
 
     return intrinsic_dict_l, intrinsic_dict_r, cam_r2l

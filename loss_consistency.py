@@ -10,7 +10,7 @@ from utils.sceneflow_util import pixel2pts_ms, pts2pixel_ms, reconstructImg, rec
 from utils.monodepth_eval import compute_errors
 from models.modules_sceneflow import WarpingLayer_Flow
 
-from utils.sceneflow_util import disp2depth_kitti
+from utils.sceneflow_util import disp2depth_kitti, flow_horizontal_flip
 from utils.inverse_warp import flow_warp, pose2flow, pose_vec2mat
 
 import sys
@@ -288,14 +288,16 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         cam_flow_l_b = pose2flow(depth_l2, cms_b[0], k_2_aug[0], torch.inverse(k_2_aug[0]))
 
         # cam_flow_r = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]))
-        cam_flow_r_warp = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]), cam_trans=cam_r2l)
-        print(cam_flow_l.data)
-        print(cam_flow_r_warp.data)
-        exit()
+        cam_flow_r_flip = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]), cam_trans=cam_r2l)
+        cam_flow_r = flow_horizontal_flip(cam_flow_r_flip)
 
-        # print('-------------------START------------------\n')
-        # print(cam_flow_r_warp.data)
-        # print('-------------------END------------------\n')
+        print('-------------------START------------------\n')
+        print("l")
+        print(cam_flow_l.data)
+        print("r warp")
+        print(cam_flow_r.data)
+        print('-------------------END------------------\n')
+        exit()
 
         ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r_warp).mean() 
         assert (not torch.isnan(ego_consistency_loss)), "ego consistency loss is nan"

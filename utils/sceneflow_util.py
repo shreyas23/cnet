@@ -20,16 +20,15 @@ def post_processing(l_disp, r_disp):
 
 def cm_horizontal_flip(cam_motion, dataset_name="KITTI"):
   """
-  [tx, ty, tz, rx, ry, rz] -> [-tx, ty, tz, rx, -ry, rz]
+  [tx, ty, tz, rx, ry, rz] -> [-tx, ty, tz, rx, ry, rz]
   """
   check_sizes(cam_motion, 'pose', 'B6')
   if dataset_name == "KITTI":
     cam_motion[:, 0] *= -1
-    cam_motion[:, 2] *= -1
-    cam_motion[:, -1] = np.pi - cam_motion[:, -1]
+
+    # cam_motion[:, -2] = np.pi - cam_motion[:, -2]
   elif dataset_name == "CARLA":
     cam_motion[:, 1] *= -1
-    cam_motion[:, -1] = -1
   return cam_motion
 
 
