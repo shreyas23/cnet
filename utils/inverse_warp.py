@@ -6,6 +6,8 @@
 from __future__ import division
 import torch
 
+from sys import exit
+
 pixel_coords = None
 
 
@@ -27,7 +29,7 @@ def check_sizes(input, input_name, expected):
     assert(all(condition)), "wrong size for {}, expected {}, got  {}".format(input_name, 'x'.join(expected), list(input.size()))
 
 
-def pixel2cam(depth, intrinsics_inv):
+def pixel2cam(depth, intrinsics_inv, cam_trans=None):
     global pixel_coords
     """Transform coordinates in the pixel frame to the camera frame.
     Args:
@@ -39,8 +41,15 @@ def pixel2cam(depth, intrinsics_inv):
     b, h, w = depth.size()
     if (pixel_coords is None) or pixel_coords.size(2) != h or pixel_coords.size(3) != w:
         set_id_grid(depth)
-    current_pixel_coords = pixel_coords[:,:,:h,:w].expand(b,3,h,w).contiguous().view(b, 3, -1)  # [B, 3, H*W]
-    cam_coords = intrinsics_inv.bmm(current_pixel_coords).view(b, 3, h, w)
+
+    if cam_trans is None:
+      cam_trans = torch.zeros((1, 3, 4))
+      cam_trans[:, :3, :3] = torch.eye(3)
+
+    k_inv_trans = intrinsics_inv.bmm(cam_trans.cuda())
+    current_pixel_coords = torch.cat([pixel_coords[:,:,:h,:w], torch.ones((b, 1, h, w)).cuda()], dim=1).expand(b,4,h,w).contiguous().view(b, 4, -1)  # [B, 4, H*W]
+    cam_coords = k_inv_trans.bmm(current_pixel_coords).view(b, 3, h, w)
+
     return cam_coords * depth.unsqueeze(1)
 
 
@@ -191,16 +200,14 @@ def flow_warp(img, flow, padding_mode='zeros'):
     return img_tf
 
 
-def pose2flow(depth, pose, intrinsics, intrinsics_inv, rotation_mode='euler', pose_mat=None, padding_mode=None):
+def pose2flow(depth, pose, intrinsics, intrinsics_inv, rotation_mode='euler', cam_trans=None, padding_mode=None):
     """
     Converts pose parameters to rigid optical flow
     """
     check_sizes(depth, 'depth', 'BHW')
-    if pose is not None:
-      check_sizes(pose, 'pose', 'B6')
-    else:
-      assert(pose_mat is not None)
-      check_sizes(pose_mat, 'egomotion', 'B34')
+    check_sizes(pose, 'pose', 'B6')
+    if cam_trans is not None:
+      check_sizes(cam_trans, 'cam2cam transform', 'B34')
     check_sizes(intrinsics, 'intrinsics', 'B33')
     check_sizes(intrinsics_inv, 'intrinsics', 'B33')
     assert(intrinsics_inv.size() == intrinsics.size())
@@ -210,10 +217,9 @@ def pose2flow(depth, pose, intrinsics, intrinsics_inv, rotation_mode='euler', po
     grid_x = torch.arange(0, w, requires_grad=False).view(1, 1, w).expand(1,h,w).type_as(depth).expand_as(depth)  # [bs, H, W]
     grid_y = torch.arange(0, h, requires_grad=False).view(1, h, 1).expand(1,h,w).type_as(depth).expand_as(depth)  # [bs, H, W]
 
-    cam_coords = pixel2cam(depth, intrinsics_inv)  # [B,3,H,W]
+    cam_coords = pixel2cam(depth, intrinsics_inv, cam_trans)  # [B,3,H,W]
 
-    if pose_mat is None:
-      pose_mat = pose_vec2mat(pose, rotation_mode)  # [B,3,4]
+    pose_mat = pose_vec2mat(pose, rotation_mode)  # [B,3,4]
 
     # Get projection matrix for tgt camera frame to source pixel frame
     proj_cam_to_src_pixel = intrinsics.bmm(pose_mat)  # [B, 3, 4]

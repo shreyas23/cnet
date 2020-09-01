@@ -75,8 +75,8 @@ def main():
 
   optimizer = Adam(model.parameters(), lr=args.lr, betas=[args.momentum, args.beta], weight_decay=args.weight_decay)
 
-  for data in train_dataloader:
-    step(args, data, model, loss, augmentations, optimizer)
+  for i, data in enumerate(train_dataloader):
+    loss_dict, _ = step(args, data, model, loss, augmentations, optimizer)
     break
 
   # run training loop
@@ -118,8 +118,8 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
   output_dict = model(data_dict)
   loss_dict = loss(output_dict, data_dict)
 
-  # for k, v in loss_dict.items():
-  #   print(f"{k}: {v}")
+  print(loss_dict['cons_dict']['ego'].data)
+  print(loss_dict['cons_dict']['cm'].data)
 
   # assert (not torch.isnan(training_loss.item())), "training_loss is NaN"
 
