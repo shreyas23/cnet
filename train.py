@@ -17,6 +17,7 @@ from datasets.kitti_raw_monosf import CarlaDataset, KITTI_Raw_KittiSplit_Train, 
 from time import time
 from pprint import pprint
 from torchsummary import summary
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser(description="Self Supervised Joint Learning of Scene Flow and Motion Segmentation",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -142,7 +143,7 @@ def train_one_epoch(args, model, loss, dataloader, optimizer, augmentations):
 
   epoch_loss = 0
 
-  for i, data in enumerate(dataloader):
+  for data in tqdm(dataloader):
     loss_dict, output_dict = step(args, data, model, loss, augmentations, optimizer)
 
     # caclulate gradients and then do Adam step

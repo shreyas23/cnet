@@ -309,13 +309,12 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         cam_occ_map_l_f = _adaptive_disocc_detection(cam_flow_l_b)
         # cam_occ_map_r_f = _adaptive_disocc_detection(cam_flow_r)
 
-        # if (~rigidity_mask_bool_f & cam_occ_map_l_f).sum() == 0:
-        #   cam_motion_loss = static_warp_error.mean()
-        # else:
-        # cam_motion_loss = static_warp_error[~rigidity_mask_bool_f & cam_occ_map_l_f].mean() 
-        cam_motion_loss = static_warp_error[cam_occ_map_l_f].mean() 
+        if (~rigidity_mask_bool_f).sum() != 0:
+          cam_motion_loss = static_warp_error[~rigidity_mask_bool_f & cam_occ_map_l_f].mean() 
+        if torch.isnan(cam_motion_loss):
+          cam_motion_loss = static_warp_error[cam_occ_map_l_f].mean() 
 
-        assert (not torch.isnan(cam_motion_loss)), f"cam motion loss is nan: {static_warp_error.mean()} {(~rigidity_mask_bool_f).sum()}"
+        assert (not torch.isnan(cam_motion_loss)), f"cam motion loss is nan: {static_warp_error.mean()} {(cam_occ_map_l_f).sum()}"
         
         # mask consensus loss
         flow_f = projectSceneFlow2Flow(k_1_aug[0], sfs_f[0], disps_1[0])
@@ -330,13 +329,14 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         # induced static scene flow knowledge distillation loss
         static_flow_consistency_diff = _elementwise_epe(cam_flow_l, flow_f)
         static_flow_consistency_loss = static_flow_consistency_diff[~rigidity_mask_bool_f].mean()
-        assert (not torch.isnan(static_flow_consistency_loss)), "static flow consistency loss is nan"
+        assert (not torch.isnan(static_flow_consistency_loss)), f"static flow consistency loss is nan: {static_flow_consistency_diff.mean()}, {~rigidity_mask_bool_f.sum()}"
 
         total_loss = [stereo_consistency_loss, 
-                     ego_consistency_loss,
-                     static_flow_consistency_loss,
-                     cam_motion_loss,
-                     mask_consensus_loss]
+                    #  ego_consistency_loss,
+                      0,
+                      static_flow_consistency_loss,
+                      cam_motion_loss,
+                      mask_consensus_loss]
 
         total_loss = sum([w * l for w, l in zip(self._consistency_weights, total_loss)])
 
