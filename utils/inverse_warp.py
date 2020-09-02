@@ -50,7 +50,7 @@ def pixel2cam(depth, intrinsics_inv, cam_tform=None):
       # cam_tform = torch.eye(4).unsqueeze(dim=0).cuda()
       cam_coords_depth = torch.cat([cam_coords_depth, torch.ones((b, 1, h, w)).cuda()], dim=1).view(b, 4, -1)
       cam_coords_depth = cam_tform.bmm(cam_coords_depth).view(b, 3, h, w)
-
+    
     return cam_coords_depth
 
 
@@ -221,7 +221,16 @@ def pose2flow(depth, pose, intrinsics, intrinsics_inv, rotation_mode='euler', ca
 
     cam_coords = pixel2cam(depth, intrinsics_inv, cam_tform=cam_tform)  # [B,3,H,W]
 
-    pose_mat = pose_vec2mat(pose, rotation_mode)  # [B,3,4]
+    # TODO: need to unflip correctly
+    pose_mat = pose_vec2mat(pose, rotation_mode)  # [B,3,4] 
+
+    if cam_tform is not None:
+      flip_mat = torch.eye(3).unsqueeze(dim=0).cuda()
+      flip_mat[:, 1, 1] = -1.
+      print(pose_mat)
+      pose_mat = flip_mat.bmm(pose_mat)
+      print(pose_mat)
+      exit()
 
     # Get projection matrix for tgt camera frame to source pixel frame
     proj_cam_to_src_pixel = intrinsics.bmm(pose_mat)  # [B, 3, 4]

@@ -283,12 +283,14 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         depth_l1 = disp2depth_kitti(disps_1[0], k_1_aug[0][:, 0, 0], baseline=baseline).squeeze(1)
         depth_l2 = disp2depth_kitti(disps_2[0], k_2_aug[0][:, 0, 0], baseline=baseline).squeeze(1)
         depth_r1 = disp2depth_kitti(disps_1[1], k_1_aug[1][:, 0, 0], baseline=baseline).squeeze(1)
-
+        print("left")
         cam_flow_l = pose2flow(depth_l1, cms_f[0], k_1_aug[0], torch.inverse(k_1_aug[0]))
-        cam_flow_l_b = pose2flow(depth_l2, cms_b[0], k_2_aug[0], torch.inverse(k_2_aug[0]))
+        # cam_flow_l_b = pose2flow(depth_l2, cms_b[0], k_2_aug[0], torch.inverse(k_2_aug[0]))
 
-        cam_flow_r = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]))
+        # cam_flow_r = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]))
+        print("right")
         cam_flow_r_flip = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]), cam_tform=cam_r2l)
+        exit()
         cam_flow_r_warp = flow_horizontal_flip(cam_flow_r_flip)
 
         ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r_warp).mean() 
