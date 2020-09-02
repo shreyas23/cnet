@@ -160,10 +160,10 @@ class CNet(nn.Module):
                 mask_b_l, mask_b_l_upsampled = self.mask_decoders[level](
                     torch.cat([out_corr_relu_b, x2, x1, x2_out], dim=1))
 
-                flow_f = apply_rigidity_mask(flow_f_s, flow_f_d, mask_f_l)
-                flow_b = apply_rigidity_mask(flow_b_s, flow_b_d, mask_b_l)
-                disp_l1 = apply_rigidity_mask(disp_l1_s, disp_l1_d, mask_f_l)
-                disp_l2 = apply_rigidity_mask(disp_l2_s, disp_l2_d, mask_b_l)
+                flow_f = apply_rigidity_mask(flow_f_s, flow_f_d, mask_f_l, self._args.mask_thresh)
+                flow_b = apply_rigidity_mask(flow_b_s, flow_b_d, mask_b_l, self._args.mask_thresh)
+                disp_l1 = apply_rigidity_mask(disp_l1_s, disp_l1_d, mask_f_l, self._args.mask_thresh)
+                disp_l2 = apply_rigidity_mask(disp_l2_s, disp_l2_d, mask_b_l, self._args.mask_thresh)
 
             else:
                 x1_out_s, flow_f_s_res, disp_l1_s = self.static_flow_estimators[level](
@@ -188,11 +188,11 @@ class CNet(nn.Module):
                 mask_b_l, mask_b_l_upsampled = self.mask_decoders[level](
                     torch.cat([out_corr_relu_b, x2, x1, x2_out, mask_b_l_upsampled], dim=1))
 
-                flow_f_res = apply_rigidity_mask(flow_f_s_res, flow_f_d_res, mask_f_l)
-                flow_b_res = apply_rigidity_mask(flow_b_s_res, flow_b_d_res, mask_b_l)
+                flow_f_res = apply_rigidity_mask(flow_f_s_res, flow_f_d_res, mask_f_l, self._args.mask_thresh)
+                flow_b_res = apply_rigidity_mask(flow_b_s_res, flow_b_d_res, mask_b_l, self._args.mask_thresh)
 
-                disp_l1 = apply_rigidity_mask(disp_l1_s, disp_l1_d, mask_f_l)
-                disp_l2 = apply_rigidity_mask(disp_l2_s, disp_l2_d, mask_b_l)
+                disp_l1 = apply_rigidity_mask(disp_l1_s, disp_l1_d, mask_f_l, self._args.mask_thresh)
+                disp_l2 = apply_rigidity_mask(disp_l2_s, disp_l2_d, mask_b_l, self._args.mask_thresh)
 
                 flow_f = flow_f + flow_f_res
                 flow_b = flow_b + flow_b_res
@@ -357,8 +357,8 @@ class CNet(nn.Module):
                   output_dict_r['rigidity_b'][ii], [3])
                 
                 # [tx, ty, tz, rx, ry, rz]
-                output_dict_r['cms_f'][ii] = cm_horizontal_flip(output_dict_r['cms_f'][ii])
-                output_dict_r['cms_b'][ii] = cm_horizontal_flip(output_dict_r['cms_b'][ii])
+                output_dict_r['cms_f'][ii] = output_dict_r['cms_f'][ii]
+                output_dict_r['cms_b'][ii] = output_dict_r['cms_b'][ii]
 
             output_dict['output_dict_r'] = output_dict_r
 

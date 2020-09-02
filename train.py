@@ -1,3 +1,4 @@
+import os
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,15 +14,16 @@ from loss_consistency import Loss_SceneFlow_SelfSup_Consistency
 from augmentations import Augmentation_SceneFlow, Augmentation_SceneFlow_Carla
 from datasets.kitti_raw_monosf import CarlaDataset, KITTI_Raw_KittiSplit_Train, KITTI_Raw_KittiSplit_Valid
 
-from torchsummary import summary
 from time import time
+from pprint import pprint
+from torchsummary import summary
 
 parser = argparse.ArgumentParser(description="Self Supervised Joint Learning of Scene Flow and Motion Segmentation",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 parser.add_argument('--dataset_name', default='KITTI', help='KITTI or Carla')
 parser.add_argument('--data_root', help='path to dataset', required=True)
-# parser.add_argument('--kitti_2015_root', help='path to dataset', required=True)
+parser.add_argument('--debugging', type=bool, default=False, help='are you debugging?')
 parser.add_argument('--finetuning', type=bool, default=False, help='finetuning on supervised data')
 parser.add_argument('--evaluation', type=bool, default=False, help='evaluating on data')
 parser.add_argument('--num-views', type=int, default=2, help="number of views present in training data")
@@ -36,6 +38,7 @@ parser.add_argument('--beta', type=float, default=0.999, help='beta param for ad
 parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay')
 parser.add_argument('--dropout', type=bool, default=False, help='dropout for regularization', choices=[True, False])
 parser.add_argument('--num_pyramid_levels', type=int, default=6, help='number of pyramid feature levels')
+parser.add_argument('--mask_thresh', type=float, default=.6, help='mask threshold for moving objects (higher threshold skews towards static)')
 parser.add_argument('--seed', default=123, help='random seed for reproducibility')
 
 args  = parser.parse_args()
@@ -45,6 +48,7 @@ def main():
   DATA_ROOT = args.data_root
 
   # load the dataset/dataloader
+  print("Loading dataset and dataloaders...")
   if DATASET_NAME == 'KITTI':
     train_dataset = KITTI_Raw_KittiSplit_Train(args, DATA_ROOT)
     val_dataset = KITTI_Raw_KittiSplit_Valid(args, DATA_ROOT)
@@ -64,8 +68,11 @@ def main():
   lr_scheduler = None
 
   # load the model
+  print("Loding model and augmentations and placing on CUDA...")
   model = CNet(args)
+
   if args.cuda:
+    augmentations = augmentations.cuda()
     model = model.cuda()
 
   # summary(model, None)
@@ -75,19 +82,28 @@ def main():
 
   optimizer = Adam(model.parameters(), lr=args.lr, betas=[args.momentum, args.beta], weight_decay=args.weight_decay)
 
-  for i, data in enumerate(train_dataloader):
-    loss_dict, _ = step(args, data, model, loss, augmentations, optimizer)
-    break
+  if not args.evaluation:
+    model = model.train()
+  else:
+    model = model.eval()
 
   # run training loop
-  # for epoch in range(args.resume_from_epoch, args.total_epochs + 1):
-    # print(f"Training epoch: {epoch + 1}")
-    # loss_dict = train_one_epoch(model, train_dataloader, optimizer, augmentations)
+  for epoch in range(args.resume_from_epoch, args.epochs + 1):
+    print(f"Training epoch: {epoch}...")
+    loss_epoch_avg = train_one_epoch(args, model, loss, train_dataloader, optimizer, augmentations)
+    print(f"\t Epoch {epoch} avg loss: {loss_epoch_avg}")
 
-    # do ya logging bbg0rl
+    assert (not torch.isnan(loss_epoch_avg)), "avg training loss is nan"
 
     # if lr_scheduler is not None:
     #   lr_scheduler.step(epoch)
+    fp = os.path.join('checkpoints', args.exp_name, f"{epoch}.ckpt")
+    if not os.path.isdir(os.path.join('checkpoints', args.exp_name)):
+      os.mkdir(os.path.join('checkpoints', args.exp_name))
+
+    torch.save({'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'opt_state_dict': optimizer.state_dict()}, fp)
 
   return
 
@@ -114,31 +130,33 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
     if k in target_keys:
       data_dict[k] = t.requires_grad_(False)
 
-  # optimizer.zero_grad()
   output_dict = model(data_dict)
   loss_dict = loss(output_dict, data_dict)
 
-  print(loss_dict['cons_dict']['ego'].data)
-  print(loss_dict['cons_dict']['cm'].data)
-
-  # assert (not torch.isnan(training_loss.item())), "training_loss is NaN"
+  training_loss = loss_dict['total_loss']
+  assert (not torch.isnan(training_loss)), "training_loss is NaN"
 
   return loss_dict, output_dict
 
-def train_one_epoch(model, loss, dataloader, optimizer, augmentations):
+def train_one_epoch(args, model, loss, dataloader, optimizer, augmentations):
 
-  model.train()
+  epoch_loss = 0
 
   for i, data in enumerate(dataloader):
-    step_loss = step(model, data, augmentations)
+    loss_dict, output_dict = step(args, data, model, loss, augmentations, optimizer)
 
     # caclulate gradients and then do Adam step
     optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-    continue
+    total_loss = loss_dict['total_loss']
+    total_loss.backward()
 
-  return
+    optimizer.step()
+
+    epoch_loss += loss_dict['total_loss'].item()
+
+  epoch_loss_avg = epoch_loss / len(dataloader)
+
+  return epoch_loss_avg
 
 if __name__ == '__main__':
   main()

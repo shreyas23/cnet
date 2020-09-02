@@ -11,7 +11,7 @@ from utils.monodepth_eval import compute_errors
 from models.modules_sceneflow import WarpingLayer_Flow
 
 from utils.sceneflow_util import disp2depth_kitti, flow_horizontal_flip
-from utils.inverse_warp import flow_warp, pose2flow, pose_vec2mat
+from utils.inverse_warp import flow_warp, pose2flow, pose_vec2mat, inverse_warp
 
 import sys
 
@@ -233,7 +233,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         local_scale[:, 0] = h_dp
         local_scale[:, 1] = w_dp
 
-        rigidity_mask_bool_f = rigidity_mask_f >= 0.5
+        rigidity_mask_bool_f = rigidity_mask_f >= self._args.mask_thresh
 
         for i in range(self._num_views):
           pts1, k1_scale = pixel2pts_ms(k_1_aug[i], disps_1[i], local_scale / aug_size)
@@ -287,17 +287,9 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         cam_flow_l = pose2flow(depth_l1, cms_f[0], k_1_aug[0], torch.inverse(k_1_aug[0]))
         cam_flow_l_b = pose2flow(depth_l2, cms_b[0], k_2_aug[0], torch.inverse(k_2_aug[0]))
 
-        # cam_flow_r = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]))
-        cam_flow_r_flip = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]), cam_trans=cam_r2l)
-        cam_flow_r = flow_horizontal_flip(cam_flow_r_flip)
-
-        print('-------------------START------------------\n')
-        print("l")
-        print(cam_flow_l.data)
-        print("r warp")
-        print(cam_flow_r.data)
-        print('-------------------END------------------\n')
-        exit()
+        cam_flow_r = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]))
+        cam_flow_r_flip = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]), cam_tform=cam_r2l)
+        cam_flow_r_warp = flow_horizontal_flip(cam_flow_r_flip)
 
         ego_consistency_loss = _elementwise_epe(cam_flow_l, cam_flow_r_warp).mean() 
         assert (not torch.isnan(ego_consistency_loss)), "ego consistency loss is nan"
@@ -307,7 +299,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         # FOR LEFT IMAGES ONLY                                           #
         ##################################################################
 
-        # static_warp_l1_f = inverse_warp(img_l1_aug, depth_l1, cms_f[0], k_l1_aug, torch.inverse(k_l1_aug))
+        # static_warp_l1_f = inverse_warp(imgs_1_aug[0], depth_l1, cms_f[0], k_1_aug[0], torch.inverse(k_1_aug[0]))
         # static_warp_r1_f = inverse_warp(img_r1_aug, depth_r1, cms_f[0], k_r1_aug, torch.inverse(k_r1_aug))
         static_warp_l1_f = flow_warp(imgs_1_aug[0], cam_flow_l)
         static_warp_l1_error = _reconstruction_error(imgs_2_aug[0], static_warp_l1_f, self._ssim_w)
@@ -317,10 +309,11 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         cam_occ_map_l_f = _adaptive_disocc_detection(cam_flow_l_b)
         # cam_occ_map_r_f = _adaptive_disocc_detection(cam_flow_r)
 
-        if (~rigidity_mask_bool_f & cam_occ_map_l_f).sum() == 0:
-          cam_motion_loss = static_warp_error.mean()
-        else:
-          cam_motion_loss = static_warp_error[~rigidity_mask_bool_f & cam_occ_map_l_f].mean() 
+        # if (~rigidity_mask_bool_f & cam_occ_map_l_f).sum() == 0:
+        #   cam_motion_loss = static_warp_error.mean()
+        # else:
+        # cam_motion_loss = static_warp_error[~rigidity_mask_bool_f & cam_occ_map_l_f].mean() 
+        cam_motion_loss = static_warp_error[cam_occ_map_l_f].mean() 
 
         assert (not torch.isnan(cam_motion_loss)), f"cam motion loss is nan: {static_warp_error.mean()} {(~rigidity_mask_bool_f).sum()}"
         
@@ -419,6 +412,10 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         img_diff1[~occ_map_f].detach_()
         img_diff2[~occ_map_b].detach_()
         loss_im = loss_im1 + loss_im2
+
+        if self._args.debugging:
+          print(f"num pixels: {occ_map_b.sum()}, {occ_map_f.sum()}")
+          print(f"iter {ii}: sf loss = {loss_im}")
 
         # Point reconstruction Loss
         pts_norm1 = torch.norm(pts1, p=2, dim=1, keepdim=True)
@@ -571,7 +568,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                                                                                                      aug_size, baseline)
 
             loss_cons_sum += loss_cons * self._weights[ii]
-            loss_cm_sum += loss_cons
+            loss_cm_sum += loss_cm
             loss_cross_sum += loss_cross 
             loss_ego_sum += loss_ego
             loss_mask_sum += loss_mask
@@ -587,6 +584,9 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         f_weight = max_val / f_loss
         d_weight = max_val / d_loss
         c_weight = max_val / c_loss
+
+        if self._args.debugging:
+          print(f"flow loss: {f_weight}, {f_loss} \n disp loss: {d_weight}, {d_loss} \n cons loss: {c_weight}, {c_loss}")
 
         total_loss = loss_sf_sum * f_weight + loss_dp_sum * d_weight + loss_cons_sum
 

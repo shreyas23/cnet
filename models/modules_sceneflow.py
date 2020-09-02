@@ -19,9 +19,9 @@ def get_grid(x):
     return grids_cuda
 
 
-def apply_rigidity_mask(static, dynamic, rigidity_mask, apply_conv=False):
+def apply_rigidity_mask(static, dynamic, rigidity_mask, mask_thresh = 0.6, apply_conv=False):
     _, ch, _, _ = static.shape
-    rigidity_mask_bool = 1. * (rigidity_mask >=0.5).repeat(1, ch, 1, 1).float()
+    rigidity_mask_bool = 1. * (rigidity_mask >= mask_thresh).repeat(1, ch, 1, 1).float()
     merged = static * (1. - rigidity_mask_bool) + dynamic * rigidity_mask_bool
     if apply_conv:
         merged = conv(ch, ch)
