@@ -44,14 +44,10 @@ def pixel2cam(depth, intrinsics_inv, cam_tform=None):
 
     current_pixel_coords = pixel_coords[:,:,:h,:w].expand(b,3,h,w).contiguous().view(b, 3, -1)  # [B, 3, H*W]
     cam_coords = intrinsics_inv.bmm(current_pixel_coords).view(b, 3, h, w)
-    cam_coords_depth = cam_coords * depth.unsqueeze(1)
 
-    if cam_tform is not None:
-      # cam_tform = torch.eye(4).unsqueeze(dim=0).cuda()
-      cam_coords_depth = torch.cat([cam_coords_depth, torch.ones((b, 1, h, w)).cuda()], dim=1).view(b, 4, -1)
-      cam_coords_depth = cam_tform.bmm(cam_coords_depth).view(b, 3, h, w)
+    cam_coords = cam_coords * depth.unsqueeze(1)
     
-    return cam_coords_depth
+    return cam_coords
 
 
 def cam2pixel(cam_coords, proj_c2p_rot, proj_c2p_tr, padding_mode):
@@ -220,17 +216,12 @@ def pose2flow(depth, pose, intrinsics, intrinsics_inv, rotation_mode='euler', ca
     grid_y = torch.arange(0, h, requires_grad=False).view(1, h, 1).expand(1,h,w).type_as(depth).expand_as(depth)  # [bs, H, W]
 
     cam_coords = pixel2cam(depth, intrinsics_inv, cam_tform=cam_tform)  # [B,3,H,W]
-
-    # TODO: need to unflip correctly
     pose_mat = pose_vec2mat(pose, rotation_mode)  # [B,3,4] 
-
+    
+    # apply cam2cam transformation if available
     if cam_tform is not None:
-      flip_mat = torch.eye(3).unsqueeze(dim=0).cuda()
-      flip_mat[:, 1, 1] = -1.
-      print(pose_mat)
-      pose_mat = flip_mat.bmm(pose_mat)
-      print(pose_mat)
-      exit()
+      cam_tform = torch.cat([pose_mat, torch.zeros(1, 1, 4).cuda()], dim=1)
+      pose_mat = pose_mat.bmm(cam_tform)
 
     # Get projection matrix for tgt camera frame to source pixel frame
     proj_cam_to_src_pixel = intrinsics.bmm(pose_mat)  # [B, 3, 4]

@@ -356,9 +356,8 @@ class CNet(nn.Module):
                 output_dict_r['rigidity_b'][ii] = torch.flip(
                   output_dict_r['rigidity_b'][ii], [3])
                 
-                # [tx, ty, tz, rx, ry, rz]
-                output_dict_r['cms_f'][ii] = output_dict_r['cms_f'][ii]
-                output_dict_r['cms_b'][ii] = output_dict_r['cms_b'][ii]
+                output_dict_r['cms_f'][ii] = cm_horizontal_flip(output_dict_r['cms_f'][ii])
+                output_dict_r['cms_b'][ii] = cm_horizontal_flip(output_dict_r['cms_b'][ii])
 
             output_dict['output_dict_r'] = output_dict_r
 

@@ -134,6 +134,9 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
   output_dict = model(data_dict)
   loss_dict = loss(output_dict, data_dict)
 
+  pprint(loss_dict)
+  exit()
+
   training_loss = loss_dict['total_loss']
   assert (not torch.isnan(training_loss)), "training_loss is NaN"
 
