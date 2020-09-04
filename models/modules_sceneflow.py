@@ -19,13 +19,13 @@ def get_grid(x):
     return grids_cuda
 
 
-def apply_rigidity_mask(static, dynamic, rigidity_mask, mask_thresh = 0.6, apply_conv=False):
+def apply_rigidity_mask(static, dynamic, rigidity_mask, mask_thresh = 0.5):
     _, ch, _, _ = static.shape
+
     rigidity_mask_bool = 1. * (rigidity_mask >= mask_thresh).repeat(1, ch, 1, 1).float()
-    merged = static * (1. - rigidity_mask_bool) + dynamic * rigidity_mask_bool
-    if apply_conv:
-        merged = conv(ch, ch)
-    return merged
+    merged_flow = static * (1. - rigidity_mask_bool) + dynamic * rigidity_mask_bool
+
+    return merged_flow
 
 
 class WarpingLayer_Flow(nn.Module):
@@ -161,57 +161,92 @@ class FeatureExtractor(nn.Module):
 
         return feature_pyramid[::-1]
 
+class CameraMotionMaskNet(nn.Module):
+  def __init__(self, in_ch, num_refs=1):
+    super(CameraMotionMaskNet)
+    shared_chs = [128, 256]
+    cam_chs = [256, 6*num_refs]
+    mask_chs = [256, 128, 64, 32, 16]
+
+    self.shared_convs = nn.Sequential(
+      conv(in_ch, shared_chs[0], kernel_size=7, stride=1),
+      conv(shared_chs[0], shared_chs[1], kernel_size=5, stride=1)
+    )
+
+    self.cam_convs = nn.Sequential(
+      conv(cam_chs[0], cam_chs[1], stride=1, kernel_size=3),
+      conv(cam_chs[1], cam_chs[2], stride=1, kernel_size=3)
+    )
+
+    self.mask_convs = nn.Sequential(
+      conv(conv_chs[0], conv_chs[1], stride=1, kernel_size=3),
+      conv(conv_chs[1], conv_chs[2], stride=1, kernel_size=3),
+      conv(conv_chs[2], conv_chs[3], stride=1, kernel_size=3),
+      conv(conv_chs[3], conv_chs[4], stride=1, kernel_size=5),
+      conv(conv_chs[4], conv_chs[5], stride=1, kernel_size=7)
+    )
+
+    def forward(self, x):
+      shared = self.shared_convs(x)
+      x_cam = self.cam_convs(shared)
+      x_mask = self.mask_convs(shared)
+
+      pred_mask = torch.sigmoid(x_mask)
+      pred_cm = 0.01 * x_cam.mean(3).mean(2)
+
+      return pred_cm, pred_mask 
+
 
 class CameraMotionDecoder(nn.Module):
-    def __init__(self, in_ch, num_refs=1):
-        super(CameraMotionDecoder, self).__init__()
+  def __init__(self, in_ch, num_refs=1):
+    super(CameraMotionDecoder, self).__init__()
 
-        conv_chs = [64, 128, 128, 256, 256, 6*num_refs]
-        self.convs = nn.Sequential(
-            conv(in_ch, in_ch, kernel_size=7),
-            conv(in_ch, conv_chs[0], kernel_size=5),
-            conv(conv_chs[0], conv_chs[1], stride=1),
-            conv(conv_chs[1], conv_chs[2], stride=1),
-            conv(conv_chs[2], conv_chs[3], stride=1),
-            conv(conv_chs[3], conv_chs[4], stride=1),
-            conv(conv_chs[4], conv_chs[5], stride=1),
-        )
+    conv_chs = [64, 128, 128, 256, 256, 6*num_refs]
+    self.convs = nn.Sequential(
+      conv(in_ch, in_ch, kernel_size=7),
+      conv(in_ch, conv_chs[0], kernel_size=5),
+      conv(conv_chs[0], conv_chs[1], stride=1),
+      conv(conv_chs[1], conv_chs[2], stride=1),
+      conv(conv_chs[2], conv_chs[3], stride=1),
+      conv(conv_chs[3], conv_chs[4], stride=1),
+      conv(conv_chs[4], conv_chs[5], stride=1),
+    )
 
-    def forward(self, pyr_feat):
-        x = self.convs(pyr_feat)
-        motion_pred = x.mean(3).mean(2) * 0.01
-        return x, motion_pred
+  def forward(self, pyr_feat):
+    x = self.convs(pyr_feat)
+    motion_pred = x.mean(3).mean(2) * 0.01
+    return x, motion_pred
 
 
 class MaskNetDecoder(nn.Module):
-    def __init__(self, in_ch, num_refs=1):
-        super(MaskNetDecoder, self).__init__()
+  def __init__(self, in_ch, num_refs=1):
+    super(MaskNetDecoder, self).__init__()
 
-        conv_chs = [256, 256, 128, 64, 32, 16]
-        self.convs = nn.Sequential(
-            conv(in_ch,       in_ch,       kernel_size=7, stride=1),
-            conv(in_ch,       conv_chs[0], kernel_size=5, stride=1),
-            conv(conv_chs[0], conv_chs[1], stride=1),
-            conv(conv_chs[1], conv_chs[2], stride=1),
-            conv(conv_chs[2], conv_chs[3], stride=1),
-            conv(conv_chs[3], conv_chs[4], stride=1),
-            conv(conv_chs[4], conv_chs[5], stride=1),
-        )
+    conv_chs = [256, 256, 128, 64, 32, 16]
+    self.convs = nn.Sequential(
+      conv(in_ch,       in_ch,       kernel_size=7, stride=1),
+      conv(in_ch,       conv_chs[0], kernel_size=5, stride=1),
+      conv(conv_chs[0], conv_chs[1], stride=1),
+      conv(conv_chs[1], conv_chs[2], stride=1),
+      conv(conv_chs[2], conv_chs[3], stride=1),
+      conv(conv_chs[3], conv_chs[4], stride=1),
+      conv(conv_chs[4], conv_chs[5], stride=1),
+    )
 
-        self.pred_mask = conv(conv_chs[-1], num_refs)
-        self.pred_mask_upconv = upconv_transpose(num_refs, num_refs)
-        self.refine_upconv = conv(num_refs, num_refs)
+    self.pred_mask = conv(conv_chs[-1], num_refs)
+    self.pred_mask_upconv = upconv_transpose(num_refs, num_refs)
+    self.refine_upconv = conv(num_refs, num_refs)
 
     def forward(self, pyr_feat):
-        out_conv = self.convs(pyr_feat)
-        mask = self.pred_mask(out_conv)
-        pred_mask = torch.sigmoid(mask)
-        mask_upconv = self.pred_mask_upconv(mask)
-        pred_mask_upconv = torch.sigmoid(
-            self.refine_upconv(mask_upconv))
+      out_conv = self.convs(pyr_feat)
+      mask = self.pred_mask(out_conv)
+      pred_mask = torch.sigmoid(mask)
+      mask_upconv = self.pred_mask_upconv(mask)
+      pred_mask_upconv = torch.sigmoid(
+          self.refine_upconv(mask_upconv))
 
-        # (B, num_refs, H, W), (B, num_refs, H*2, W*2)
-        return pred_mask, pred_mask_upconv
+      # (B, num_refs, H, W), (B, num_refs, H*2, W*2)
+      return pred_mask, pred_mask_upconv
 
 
 class MonoSceneFlowDecoder(nn.Module):
