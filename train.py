@@ -48,8 +48,7 @@ parser.add_argument('--dropout', type=bool, default=False, help='dropout for reg
 
 # model params
 parser.add_argument('--num_pyramid_levels', type=int, default=6, help='number of pyramid feature levels')
-parser.add_argument('--use_mask', type=bool, default=False, help="whether to use mask in training procedure")
-parser.add_argument('--use_consistency', type=bool, default=False, help="whether to use consistency losses in training procedure")
+parser.add_argument('--train_consistency', type=bool, default=False, help="whether to use consistency losses in training procedure")
 parser.add_argument('--mask_thresh', type=float, default=.6, help='mask threshold for moving objects (higher threshold skews towards static)')
 parser.add_argument('--freeze_consistency', type=float, default=.6, help='mask threshold for moving objects (higher threshold skews towards static)')
 

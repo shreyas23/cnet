@@ -625,68 +625,66 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         self._sf_3d_sm = 200
 
         self._num_views = args.num_views
-        self._consistency_weights = [1.0, 1.0, 1.0, 1.0, 1.0]
+        self._consistency_weights = [1.0, 1.0, 1.0, 1.0]
         self._flow_diff_thresh = 0.01
 
     def consistency_loss(self, 
-                         sf_f_s, sf_f_d, sf_b_s, sf_b_d,
+                         sf_f_s, sf_f_d,
                          disp_l1_s, disp_l1_d, disp_l2_s, disp_l2_d,
                          disp_r1_s, disp_r1_d,
-                         disp_occ_l1_s, disp_occ_l1_d, disp_occ_l2_s, disp_occ_l2_d,
+                        #  disp_occ_l1_s, disp_occ_l1_d, disp_occ_l2_s, disp_occ_l2_d,
                          cms_f, cms_b,
                          rigidity_mask_f, rigidity_mask_b,
                          img_l1_aug, img_l2_aug,
                          img_r1_aug, img_r2_aug,
-                         k_l1_aug, k_l2_aug,
-                         k_r1_aug, k_r2_aug,
+                         k_l1_aug, k_r1_aug,
                          cam_tform, aug_size, baseline):
 
+        disp_l1 = torch.where(disp_l1_s < disp_l1_d, disp_l1_s, disp_l1_d)
+        disp_r1 = torch.where(disp_r1_s < disp_r1_d, disp_r1_s, disp_r1_d)
+        disp_l2 = torch.where(disp_l2_s < disp_l2_d, disp_l2_s, disp_l2_d)
+
         # egomotion consistency loss
-        depth_l1 = disp2depth_kitti(disps_1[0], k_1_aug[0][:, 0, 0], baseline=baseline).squeeze(1)
-        depth_l2 = disp2depth_kitti(disps_2[0], k_2_aug[0][:, 0, 0], baseline=baseline).squeeze(1)
-        depth_r1 = disp2depth_kitti(disps_1[1], k_1_aug[1][:, 0, 0], baseline=baseline).squeeze(1)
-
-        cam_flow_l_f = pose2flow(depth_l1, cms_f[0], k_1_aug[0], torch.inverse(k_1_aug[0]))
-        cam_flow_l_b = pose2flow(depth_l2, cms_b[0], k_1_aug[0], torch.inverse(k_1_aug[0]))
-
-        cam_flow_r_f = pose2flow(depth_r1, cms_f[1], k_1_aug[1], torch.inverse(k_1_aug[1]), cam_tform=cam_tform)
-
-        ego_consistency_loss = _elementwise_epe(cam_flow_l_f, cam_flow_r_f).mean() 
+        depth_l1 = disp2depth_kitti(disp_l1, k_l1_aug[:, 0, 0], baseline=baseline).squeeze(1)
+        depth_l2 = disp2depth_kitti(disp_l2, k_l1_aug[:, 0, 0], baseline=baseline).squeeze(1)
+        depth_r1 = disp2depth_kitti(disp_r1, k_r1_aug[:, 0, 0], baseline=baseline).squeeze(1)
+        cam_flow_l_f = pose2flow(depth_l1, cms_f[0], k_l1_aug, torch.inverse(k_l1_aug))
+        cam_flow_l_b = pose2flow(depth_l2, cms_b[0], k_l1_aug, torch.inverse(k_l1_aug))
+        cam_flow_r_f_warp = pose2flow(depth_r1, cms_f[1], k_l1_aug, torch.inverse(k_r1_aug), cam_tform=cam_tform)
+        ego_consistency_loss = _elementwise_epe(cam_flow_l_f, cam_flow_r_f_warp).mean() 
         assert (not torch.isnan(ego_consistency_loss)), "ego consistency loss is nan"
 
         # static reconstruction loss through camera motion and disparity
-        static_warp_l1_f = flow_warp(imgs_1_aug[0], cam_flow_l_f)
-        static_warp_l1_error = _reconstruction_error(imgs_2_aug[0], static_warp_l1_f, self._ssim_w)
+        static_warp_l1_f = flow_warp(img_l1_aug, cam_flow_l_f)
+        img_l2_diff_cam = _reconstruction_error(img_l2_aug, static_warp_l1_f, self._ssim_w)
         cam_occ_map_l_f = _adaptive_disocc_detection(cam_flow_l_b)
-
-        # if (~rigidity_mask_bool_f).sum() != 0:
-        #   cam_motion_loss = static_warp_l1_error[~rigidity_mask_bool_f & cam_occ_map_l_f].mean() 
-        # else:
-        cam_motion_loss = static_warp_l1_error[cam_occ_map_l_f].mean() 
-
+        cam_motion_loss = img_l2_diff_cam[cam_occ_map_l_f].mean() 
         assert (not torch.isnan(cam_motion_loss)), f"cam motion loss is nan: {static_warp_error.mean()} {(cam_occ_map_l_f).sum()}"
         
         # mask consensus loss
-        flow_f = projectSceneFlow2Flow(k_1_aug[0], sfs_f[0], disps_1[0])
-        img_l2_reconstruction_error = _reconstruction_error(imgs_2_aug[0], imgs_1_warp[0], self._ssim_w)
-        target_mask = (static_warp_l1_error <= img_l2_reconstruction_error).bool()
-        flow_diff = (_elementwise_epe(cam_flow_l_f, flow_f) < self._flow_diff_thresh).bool()
-        census_target_mask = target_mask | flow_diff
+        flow_f_s = projectSceneFlow2Flow(k_l1_aug, sf_f_s, disp_l1_s)
+        flow_f_d = projectSceneFlow2Flow(k_l1_aug, sf_f_d, disp_l1_d)
+        img_l1_warp_s = flow_warp(img_l1_aug, flow_f_s)
+        img_l1_warp_d = flow_warp(img_l1_aug, flow_f_d)
+        img_l2_diff_s = _reconstruction_error(img_l2_aug, img_l1_warp_s, self._ssim_w)
+        img_l2_diff_d = _reconstruction_error(img_l2_aug, img_l1_warp_d, self._ssim_w)
+        flow_f_comb = torch.where(img_l2_diff_s < img_l2_diff_d, flow_f_s, flow_f_d)
+        img_l1_warp = flow_warp(img_l1_aug, flow_f_comb)
+        img_l2_diff = _reconstruction_error(img_l2_aug, img_l1_warp, self._ssim_w)
+        target_mask = (img_l2_diff_cam <= img_l2_diff).bool()
 
-        mask_consensus_loss = tf.binary_cross_entropy(rigidity_mask_f, census_target_mask.float())
+        flow_diff = (_elementwise_epe(cam_flow_l_f, flow_f_comb) < self._flow_diff_thresh).bool()
+        census_target_mask = (target_mask | flow_diff).float()
+        mask_consensus_loss = tf.binary_cross_entropy(rigidity_mask_f, census_target_mask)
         assert (not torch.isnan(mask_consensus_loss)), "mask consensus loss is nan"
 
         # static scene flow knowledge distillation loss
-        static_flow_consistency_diff = _elementwise_epe(cam_flow_l_f, flow_f)
-        # if (~rigidity_mask_bool_f).sum() > 0:
-        #   static_flow_consistency_loss = static_flow_consistency_diff[~rigidity_mask_bool_f].mean()
-        # else:
+        static_flow_consistency_diff = _elementwise_epe(cam_flow_l_f, flow_f_s)
         static_flow_consistency_loss = static_flow_consistency_diff.mean()
 
         assert (not torch.isnan(static_flow_consistency_loss)), f"static flow consistency loss is nan: {static_flow_consistency_diff.mean()}, {~rigidity_mask_bool_f.sum()}"
 
-        total_loss = [stereo_consistency_loss, 
-                      ego_consistency_loss,
+        total_loss = [ego_consistency_loss,
                       static_flow_consistency_loss,
                       cam_motion_loss,
                       mask_consensus_loss]
@@ -694,7 +692,6 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         total_loss = sum([w * l for w, l in zip(self._consistency_weights, total_loss)])
 
         return total_loss, \
-               stereo_consistency_loss, \
                ego_consistency_loss, \
                static_flow_consistency_loss, \
                cam_motion_loss, \
@@ -877,7 +874,6 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
 
         loss_cons_sum = 0
         loss_cm_sum = 0
-        loss_cross_sum = 0
         loss_ego_sum = 0
         loss_mask_sum = 0
         loss_static_sum = 0
@@ -890,8 +886,8 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         cam_r2l = target_dict['input_cam_r2l']
         baseline = target_dict['baseline']
 
-        sfs_f_r = output_dict['output_dict_r']['flow_f']
-        sfs_b_r = output_dict['output_dict_r']['flow_b']
+        # sfs_f_r = output_dict['output_dict_r']['flow_f']
+        # sfs_b_r = output_dict['output_dict_r']['flow_b']
         cms_f_r = output_dict['output_dict_r']['cms_f']
         cms_b_r = output_dict['output_dict_r']['cms_b']
         disp_r1 = output_dict['output_dict_r']['disp_l1']
@@ -901,7 +897,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                  cms_f_l, cms_b_l, cms_f_r,
                  rigidity_mask_f, rigidity_mask_b,
                  disp_l1_s, disp_l1_d, disp_l2_s, disp_l2_d, 
-                 disp_r1_s, disp_r1_d, disp_r2_s, disp_r2_d) in enumerate(zip(output_dict['flow_f'], output_dict['flow_b'], sfs_f_r, sfs_b_r,
+                 disp_r1_s, disp_r1_d, disp_r2_s, disp_r2_d) in enumerate(zip(output_dict['flow_f'], output_dict['flow_b'],# sfs_f_r, sfs_b_r,
                                                     output_dict['cms_f'], output_dict['cms_b'], cms_f_r, cms_b_r,
                                                     output_dict['rigidity_f'], output_dict['rigidity_b'],
                                                     output_dict['disp_l1'], output_dict['disp_l2'], disp_r1, disp_r2)):
@@ -922,13 +918,14 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                 (loss_disp_l1 + loss_disp_l2) * self._weights[ii]
 
             # Sceneflow Loss
-            loss_sceneflow, loss_im, loss_pts, loss_3d_s = self.sceneflow_loss(sf_f_s, sf_b_l,  # sf: [static, dynamic]
-                                                                               disp_l1, disp_l2,
-                                                                               disp_occ_l1, disp_occ_l2,
+            loss_sceneflow, loss_im, loss_pts, loss_3d_s = self.sceneflow_loss(sf_f_s, sf_f_d,
+                                                                               disp_l1_s, disp_l1_d, disp_l2_s, disp_l2_d,
+                                                                               disp_r1_s, disp_r1_d,
+                                                                              #  disp_occ_l1, disp_occ_l2,
                                                                                img_l1_aug, img_l2_aug,
-                                                                               k_l1_aug, k_l2_aug,
-                                                                               aug_size, ii)
-
+                                                                               img_r1_aug, img_r2_aug,
+                                                                               k_l1_aug, k_r1_aug,
+                                                                               cam_tform, aug_size, baseline)
             loss_sf_sum = loss_sf_sum + loss_sceneflow * self._weights[ii]
             loss_sf_2d = loss_sf_2d + loss_im
             loss_sf_3d = loss_sf_3d + loss_pts
@@ -953,21 +950,22 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
             k_1_augs = [k_l1_aug, k_r1_aug]
             k_2_augs = [k_l2_aug, k_r2_aug]
 
-            loss_cons, loss_cross, loss_ego, loss_static, loss_cm, loss_mask = self.consistency_loss(sfs_f, sfs_b,
-                                                                                                     cms_f, cms_b,
-                                                                                                     disps_1, disps_2,
-                                                                                                     disp_occs_1, disp_occs_2,
-                                                                                                     imgs_1_aug, imgs_2_aug,
-                                                                                                     rigidity_mask_f, rigidity_mask_b,
-                                                                                                     k_1_augs, k_2_augs, cam_r2l,
-                                                                                                     aug_size, baseline)
+            if self._args.train_consistency or self._args.evaluation:
+              loss_cons, l_e, l_s, l_c, l_m = self.consistency_loss(sf_f_s, sf_f_d, sf_b_s, sf_b_d,
+                                                                    cms_f, cms_b,
+                                                                    disp_l1_s, disp_l1_d, disp_l2_s, disp_l2_d,
+                                                                    disp_r1_s, disp_r1_d,
+                                                                    # disp_occs_1, disp_occs_2,
+                                                                    imgs_1_aug, imgs_2_aug,
+                                                                    rigidity_mask_f, rigidity_mask_b,
+                                                                    k_1_augs, k_2_augs, cam_r2l,
+                                                                    aug_size, baseline)
 
-            loss_cons_sum += loss_cons * self._weights[ii]
-            loss_cm_sum += loss_cm
-            loss_cross_sum += loss_cross 
-            loss_ego_sum += loss_ego
-            loss_mask_sum += loss_mask
-            loss_static_sum += loss_static
+              loss_cons_sum += loss_cons * self._weights[ii]
+              loss_cm_sum += l_c
+              loss_ego_sum += l_e
+              loss_mask_sum += l_m 
+              loss_static_sum += l_s
 
         # finding weight
         f_loss = loss_sf_sum.detach()
@@ -983,7 +981,7 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         if self._args.debugging:
           print(f"flow loss: {f_weight}, {f_loss} \n disp loss: {d_weight}, {d_loss} \n cons loss: {c_weight}, {c_loss}")
 
-        total_loss = loss_sf_sum * f_weight + loss_dp_sum * d_weight + loss_cons_sum
+        total_loss = loss_sf_sum * f_weight + loss_dp_sum * d_weight + loss_cons_sum * c_weight
 
         loss_cons_dict = {}
         loss_cons_dict['cross'] = loss_cross_sum
@@ -1005,80 +1003,3 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
         self.detaching_grad_of_outputs(output_dict['output_dict_r'])
 
         return loss_dict
-
-
-"""
-
-        ## format: [left, right] ## 
-        imgs_1_warp = [] 
-        imgs_2_warp = []
-        occ_maps_f =  []
-        occ_maps_b =  []
-
-        _, _, h_dp, w_dp = sfs_f[0].size()
-        disp_l1_s *= w_dp
-        disp_l1_d *= w_dp
-        disp_l2_s *= w_dp
-        disp_l2_d *= w_dp
-
-        # scale
-        local_scale = torch.zeros_like(aug_size)
-        local_scale[:, 0] = h_dp
-        local_scale[:, 1] = w_dp
-
-        pts1_s, k1_scale_s = pixel2pts_ms(k_l1_aug, disp_l1_s, local_scale / aug_size)
-        pts1_d, k1_scale_d = pixel2pts_ms(k_l1_aug, disp_l1_d, local_scale / aug_size)
-        pts2_s, k2_scale_s = pixel2pts_ms(k_l2_aug, disp_l2_s, local_scale / aug_size)
-        pts2_d, k2_scale_d = pixel2pts_ms(k_l2_aug, disp_l2_d, local_scale / aug_size)
-
-        _, pts1_tf_s, coord1_s = pts2pixel_ms(k1_scale_s, pts1_s, sf_f_s, [h_dp, w_dp])
-        _, pts1_tf_d, coord1_d = pts2pixel_ms(k1_scale_d, pts1_d, sf_f_d, [h_dp, w_dp])
-        _, pts2_tf_s, coord2_s = pts2pixel_ms(k2_scale_s, pts2_s, sf_f_s, [h_dp, w_dp])
-        _, pts2_tf_d, coord2_d = pts2pixel_ms(k2_scale_d, pts2_d, sf_f_d, [h_dp, w_dp])
-
-        pts2_warp_s = reconstructPts(coord1_s, pts2_s)
-        pts2_warp_d = reconstructPts(coord1_d, pts2_d)
-        pts1_warp_s = reconstructPts(coord2_s, pts1_s)
-        pts1_warp_d = reconstructPts(coord2_d, pts1_d)
-
-        flow_f_s = projectSceneFlow2Flow(k1_scale_s, sf_f_s, disp_l1_s)
-        flow_f_d = projectSceneFlow2Flow(k1_scale_d, sf_f_d, disp_l1_d)
-        flow_b_s = projectSceneFlow2Flow(k2_scale_s, sf_b_s, disp_l2_s)
-        flow_b_d = projectSceneFlow2Flow(k2_scale_d, sf_b_d, disp_l2_d)
-
-        # Image reconstruction
-        img_l2_warp_s = reconstructImg(coord1_s, img_l2_aug)
-        img_l2_warp_d = reconstructImg(coord1_d, img_l2_aug)
-        img_l1_warp_s = reconstructImg(coord2_s, img_l1_aug)
-        img_l1_warp_d = reconstructImg(coord2_d, img_l1_aug)
-
-        occ_map_b_s = _adaptive_disocc_detection(flow_f_s).detach()
-        occ_map_b_d = _adaptive_disocc_detection(flow_f_d).detach()
-        occ_map_b = (occ_map_b_s | occ_map_b_d)
-
-        occ_map_f_s = _adaptive_disocc_detection(flow_b_s).detach()
-        occ_map_f_d = _adaptive_disocc_detection(flow_b_d).detach()
-        occ_map_f = (occ_map_f_s | occ_map_f_d)
-
-        # cross term image reconstruction loss
-        cross_warp_img_f_s = _apply_disparity(imgs_l1_warp_s, disp_l2_s)
-        cross_warp_img_f_d = _apply_disparity(imgs_l1_warp_d, disp_l2_d)
-        cross_warp_diff_f_s = _reconstruction_error(img_l2_aug, cross_warp_img_f_s, self._ssim_w)
-        cross_warp_diff_f_d = _reconstruction_error(img_l2_aug, cross_warp_img_f_d, self._ssim_w)
-        cross_warp_diff_f = cross_warp_diff_f_s * (1-rigidity_mask_f) + cross_warp_diff_f_d * rigidity_mask_f
-
-        cross_warp_img_b_s = _apply_disparity(img_l2_warp, disp_l1_s)
-        cross_warp_img_b_d = _apply_disparity(img_l2_warp, disp_l1_d)
-        cross_warp_diff_b_s = _reconstruction_error(img_l1_aug[1], cross_warp_img_b_s, self._ssim_w)
-        cross_warp_diff_b_d = _reconstruction_error(img_l1_aug[1], cross_warp_img_b_d, self._ssim_w)
-        cross_warp_diff_b = cross_warp_diff_b_s * (1-rigidity_mask_b) + cross_warp_diff_b_d * rigidity_mask_b
-
-        loss_cross_f = cross_warp_diff_f[occ_map_f].mean()
-        loss_cross_b = cross_warp_diff_b[occ_map_b].mean()
-
-        cross_warp_diff_f[~occ_maps_f[0]].detach_()
-        cross_warp_diff_b[~occ_maps_b[0]].detach_()
-
-        stereo_consistency_loss = loss_cross_f + loss_cross_b
-        assert (not torch.isnan(stereo_consistency_loss)), "stereo consistency loss is nan"
-"""
