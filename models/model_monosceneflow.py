@@ -9,7 +9,7 @@ from .correlation_package.correlation import Correlation
 
 from .modules_sceneflow import get_grid, WarpingLayer_SF
 from .modules_sceneflow import initialize_msra, upsample_outputs_as
-from .modules_sceneflow import upconv
+from .modules_sceneflow import upconv_interpolate
 from .modules_sceneflow import FeatureExtractor, MonoSceneFlowDecoder, ContextNetwork
 
 from utils.interpolation import interpolate2d_as
@@ -44,7 +44,7 @@ class MonoSceneFlow(nn.Module):
                 num_ch_in = self.dim_corr + ch 
             else:
                 num_ch_in = self.dim_corr + ch + 32 + 3 + 1
-                self.upconv_layers.append(upconv(32, 32, 3, 2))
+                self.upconv_layers.append(upconv_interpolate(32, 32, 3, 2))
 
             layer_sf = MonoSceneFlowDecoder(num_ch_in)            
             self.flow_estimators.append(layer_sf)            

@@ -399,10 +399,11 @@ class CNet(nn.Module):
 
 class CNet_CamMaskCombined(nn.Module):
     def __init__(self, args):
-        super(CNet, self).__init__()
+        super(CNet_CamMaskCombined, self).__init__()
 
         self._args = args
-        self.num_chs = [3, 32, 64, 96, 128, 192, 256]
+        # self.num_chs = [3, 32, 64, 96, 128, 192, 256]
+        self.num_chs = [3, 64, 96, 128, 192, 256, 512]
         self.search_range = 4
         self.output_level = 4
         self.num_levels = 7
@@ -425,18 +426,18 @@ class CNet_CamMaskCombined(nn.Module):
                 break
 
             if level == 0:
-                num_ch_in = self.dim_corr + ch
-                num_ch_cm_mask = self.dim_corr + ch + ch + 64 + 32
+                num_ch_in = self.dim_corr + ch + ch
+                # num_ch_cm_mask = self.dim_corr + ch + ch + 64 + 32
+                num_ch_cm_mask = self.dim_corr + ch + ch
             else:
-                num_ch_in = self.dim_corr + ch + 64 + 3 + 1
-                num_ch_cm_mask = self.dim_corr + ch + ch + 64 + 32 + 6 + 1
+                num_ch_in = self.dim_corr + ch + ch + 3 + 1
+                num_ch_cm_mask = self.dim_corr + ch + ch + 6 + 1
 
-                self.upconv_layers.append(upconv(64, 64, 3, 2))
+                self.upconv_layers.append(upconv(32, 32, 3, 2))
 
             # split decoders
             static_layer_sf = MonoSceneFlowDecoder(num_ch_in)
             dynamic_layer_sf = MonoSceneFlowDecoder(num_ch_in)
-
             cam_mask_decoder = CameraMotionMaskNet(num_ch_cm_mask)
 
             self.static_flow_estimators.append(static_layer_sf)
@@ -446,13 +447,11 @@ class CNet_CamMaskCombined(nn.Module):
         self.corr_params = {"pad_size": self.search_range, "kernel_size": 1,
                             "max_disp": self.search_range, "stride1": 1, "stride2": 1, "corr_multiply": 1}
 
-        self.context_networks = ContextNetwork(64 + 3 + 1 + 6 + 1)
+        self.context_networks = ContextNetwork(32 + 3 + 1 + 1)
         self.sigmoid = torch.nn.Sigmoid()
 
         initialize_msra(self.modules())
       
-    def init_weights(self):
-      return
 
     def run_pwc(self, input_dict, l1_raw, l2_raw, r1_raw, r2_raw, k_l1, k_l2, k_r1, k_r2):
 
@@ -485,10 +484,10 @@ class CNet_CamMaskCombined(nn.Module):
 
             # warping
             if level == 0:
-                x2_warp_s = x2_s
-                x2_warp_d = x2_d
-                x1_warp_s = x1_s
-                x1_warp_d = x1_d
+                x2_warp_s = x2
+                x2_warp_d = x2
+                x1_warp_s = x1
+                x1_warp_d = x1
             else:
                 flow_f_s = interpolate2d_as(flow_f_s, x1, mode="bilinear")
                 flow_f_d = interpolate2d_as(flow_f_d, x1, mode="bilinear")
@@ -502,8 +501,8 @@ class CNet_CamMaskCombined(nn.Module):
 
                 cm_feats_f = interpolate2d_as(cm_feats_f, x1, mode="bilinear")
                 cm_feats_b = interpolate2d_as(cm_feats_b, x1, mode="bilinear")
-                mask_feats_f = interpolate2d_as(mask_feats_f, x1, mode="bilinear")
-                mask_feats_b = interpolate2d_as(mask_feats_b, x1, mode="bilinear")
+                mask_f = interpolate2d_as(mask_f, x1, mode="bilinear")
+                mask_b = interpolate2d_as(mask_b, x1, mode="bilinear")
 
                 x1_out_s = self.upconv_layers[level-1](x1_out_s)
                 x1_out_d = self.upconv_layers[level-1](x1_out_d)
@@ -534,35 +533,35 @@ class CNet_CamMaskCombined(nn.Module):
             # joint estimator
             if level == 0:
                 x1_out_s, flow_f_s, disp_l1_s = self.static_flow_estimators[level](
-                    torch.cat([out_corr_relu_f_s, x1], dim=1))
+                    torch.cat([out_corr_relu_f_s, x1, x2], dim=1))
                 x1_out_d, flow_f_d, disp_l1_d = self.dynamic_flow_estimators[level](
-                    torch.cat([out_corr_relu_f_d, x1], dim=1))
+                    torch.cat([out_corr_relu_f_d, x1, x2], dim=1))
 
                 x2_out_s, flow_b_s, disp_l2_s = self.static_flow_estimators[level](
-                    torch.cat([out_corr_relu_b_s, x2], dim=1))
+                    torch.cat([out_corr_relu_b_s, x2, x1], dim=1))
                 x2_out_d, flow_b_d, disp_l2_d = self.dynamic_flow_estimators[level](
-                    torch.cat([out_corr_relu_b_d, x2], dim=1))
+                    torch.cat([out_corr_relu_b_d, x2, x1], dim=1))
 
-                cm_f, mask_f, cm_feats_f, mask_feats_f = self.cam_motion_decoders[level](
-                  torch.cat([out_corr_relu_f_s, x1, x2]))
-                cm_b, mask_b, cm_feats_b, mask_feats_b = self.cam_motion_decoders[level](
-                  torch.cat([out_corr_relu_b_d, x2, x1]))
+                cm_feats_f, cm_f, mask_f = self.cam_mask_decoders[level](
+                  torch.cat([out_corr_relu_f_s, x1, x2], dim=1))
+                cm_feats_b, cm_b, mask_b = self.cam_mask_decoders[level](
+                  torch.cat([out_corr_relu_b_d, x2, x1], dim=1))
 
             else:
                 x1_out_f_s, flow_f_s_res, disp_l1_s = self.static_flow_estimators[level](
-                    torch.cat([out_corr_relu_f_s, x1, x2, x1_out_s, flow_f_s, disp_l1_s], dim=1))
+                    torch.cat([out_corr_relu_f_s, x1, x2, flow_f_s, disp_l1_s], dim=1))
                 x1_out_f_d, flow_f_d_res, disp_l1_d = self.dynamic_flow_estimators[level](
-                    torch.cat([out_corr_relu_f_d, x1, x2, x1_out_d, flow_f_d, disp_l1_d], dim=1))
+                    torch.cat([out_corr_relu_f_d, x1, x2, flow_f_d, disp_l1_d], dim=1))
 
                 x2_out_b_s, flow_b_s_res, disp_l2_s = self.static_flow_estimators[level](
-                    torch.cat([out_corr_relu_b_s, x2, x1, x2_out_s, flow_b_s, disp_l2_s], dim=1))
+                    torch.cat([out_corr_relu_b_s, x2, x1, flow_b_s, disp_l2_s], dim=1))
                 x2_out_b_d, flow_b_d_res, disp_l2_d = self.dynamic_flow_estimators[level](
-                    torch.cat([out_corr_relu_b_d, x2, x1, x2_out_s, flow_b_d, disp_l2_d], dim=1))
+                    torch.cat([out_corr_relu_b_d, x2, x1, flow_b_d, disp_l2_d], dim=1))
 
-                cm_f, mask_f, cm_feats_f, mask_feats_f = self.cam_motion_decoders[level](
-                  torch.cat([out_corr_relu_f_s, x1, x2]))
-                cm_b, mask_b, cm_feats_b, mask_feats_b = self.cam_motion_decoders[level](
-                  torch.cat([out_corr_relu_b_s, x2, x1]))
+                cm_feats_f, cm_f, mask_f = self.cam_mask_decoders[level](
+                  torch.cat([out_corr_relu_f_s, x1, x2, cm_feats_f, mask_f], dim=1))
+                cm_feats_b, cm_b, mask_b = self.cam_mask_decoders[level](
+                  torch.cat([out_corr_relu_b_s, x2, x1, cm_feats_b, mask_b], dim=1))
 
                 flow_f_s = flow_f_s + flow_f_s_res
                 flow_f_d = flow_f_d + flow_f_d_res
@@ -586,8 +585,8 @@ class CNet_CamMaskCombined(nn.Module):
                 disps_l2_d.append(disp_l2_d)
                 rigidity_masks_f.append(mask_f)
                 rigidity_masks_b.append(mask_b)
-                cam_motions_f.append(cam_motions_f)
-                cam_motions_b.append(cam_motions_b)
+                cam_motions_f.append(cm_f)
+                cam_motions_b.append(cm_b)
 
             else:
                 flow_res_f_s, disp_l1_s = self.context_networks(
@@ -614,8 +613,8 @@ class CNet_CamMaskCombined(nn.Module):
                 disps_l2_d.append(disp_l2_d)
                 rigidity_masks_f.append(mask_f)
                 rigidity_masks_b.append(mask_b)
-                cam_motions_f.append(cam_motions_f)
-                cam_motions_b.append(cam_motions_b)
+                cam_motions_f.append(cm_f)
+                cam_motions_b.append(cm_b)
                 break
 
         x1_rev = l1_pyramid[::-1]
@@ -679,7 +678,7 @@ class CNet_CamMaskCombined(nn.Module):
                 input_r1_flip, input_r2_flip,
                 k_l1_flip, k_l2_flip, k_r1_flip, k_r2_flip)
 
-            for ii in range(0, len(output_dict_r['flow_f'])):
+            for ii in range(0, len(output_dict_r['flow_f_s'])):
                 output_dict_r['flow_f_s'][ii] = flow_horizontal_flip(
                   output_dict_r['flow_f_s'][ii])
                 output_dict_r['flow_f_d'][ii] = flow_horizontal_flip(

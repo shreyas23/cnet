@@ -264,7 +264,7 @@ class KITTI_Raw(data.Dataset):
                 "input_k_l2": k_r1,
                 "input_k_r2": k_l1,
                 "input_cam_r2l"   : self.cam_r2l[datename],
-                "baseline"  : 0.54  # XXX: This is only for KITTI
+                "input_baseline"  : float(0.54)  # XXX: This is only for KITTI
             }
             example_dict.update(common_dict)
 
@@ -279,7 +279,7 @@ class KITTI_Raw(data.Dataset):
                 "input_k_l2": k_l1,
                 "input_k_r2": k_r1,
                 "input_cam_r2l"   : self.cam_r2l[datename],
-                "baseline"  : 0.54  # XXX: This is only for KITTI
+                "input_baseline"  : float(0.54)  # XXX: This is only for KITTI
             }
             example_dict.update(common_dict)
 

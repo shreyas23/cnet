@@ -163,10 +163,10 @@ class FeatureExtractor(nn.Module):
 
 class CameraMotionMaskNet(nn.Module):
   def __init__(self, in_ch, num_refs=1):
-    super(CameraMotionMaskNet)
+    super(CameraMotionMaskNet, self).__init__()
     shared_chs = [128, 256]
     cam_chs = [256, 6*num_refs]
-    mask_chs = [256, 128, 64, 32, 16]
+    mask_chs = [256, 128, 64, 32, 16, num_refs]
 
     self.shared_convs = nn.Sequential(
       conv(in_ch, shared_chs[0], kernel_size=7, stride=1),
@@ -174,27 +174,28 @@ class CameraMotionMaskNet(nn.Module):
     )
 
     self.cam_convs = nn.Sequential(
-      conv(cam_chs[0], cam_chs[1], stride=1, kernel_size=3),
-      conv(cam_chs[1], cam_chs[2], stride=1, kernel_size=3)
+      conv(shared_chs[-1], cam_chs[0], stride=1, kernel_size=3),
+      conv(cam_chs[0], cam_chs[1], stride=1, kernel_size=3)
     )
 
     self.mask_convs = nn.Sequential(
-      conv(conv_chs[0], conv_chs[1], stride=1, kernel_size=3),
-      conv(conv_chs[1], conv_chs[2], stride=1, kernel_size=3),
-      conv(conv_chs[2], conv_chs[3], stride=1, kernel_size=3),
-      conv(conv_chs[3], conv_chs[4], stride=1, kernel_size=5),
-      conv(conv_chs[4], conv_chs[5], stride=1, kernel_size=7)
+      conv(shared_chs[-1], mask_chs[0], stride=1, kernel_size=3),
+      conv(mask_chs[0], mask_chs[1], stride=1, kernel_size=3),
+      conv(mask_chs[1], mask_chs[2], stride=1, kernel_size=3),
+      conv(mask_chs[2], mask_chs[3], stride=1, kernel_size=3),
+      conv(mask_chs[3], mask_chs[4], stride=1, kernel_size=5),
+      conv(mask_chs[4], mask_chs[5], stride=1, kernel_size=7)
     )
 
-    def forward(self, x):
-      shared = self.shared_convs(x)
-      x_cam = self.cam_convs(shared)
-      x_mask = self.mask_convs(shared)
+  def forward(self, x):
+    shared = self.shared_convs(x)
+    x_cam = self.cam_convs(shared)
+    x_mask = self.mask_convs(shared)
 
-      pred_mask = torch.sigmoid(x_mask)
-      pred_cm = 0.01 * x_cam.mean(3).mean(2)
+    pred_mask = torch.sigmoid(x_mask)
+    pred_cm = 0.01 * x_cam.mean(3).mean(2)
 
-      return pred_cm, pred_mask 
+    return x_cam, pred_cm, pred_mask
 
 
 class CameraMotionDecoder(nn.Module):
@@ -255,14 +256,34 @@ class MonoSceneFlowDecoder(nn.Module):
 
         self.convs = nn.Sequential(
             conv(ch_in, 128),
+            # conv(ch_in, 256),  # testing
+            # conv(256, 256),  # testing
+            # conv(256, 128),  # testing
             conv(128, 128),
+            # conv(128, 128),  # testing
+            # conv(128, 128),  # testing
             conv(128, 96),
+            # conv(96, 96),  # testing
             conv(96, 64),
-            conv(64, 32)
+            # conv(64, 64),  # testing
+            conv(64, 32),
+            # conv(32, 32)  # testing
         )
 
         self.conv_sf = conv(32, 3, isReLU=False)
         self.conv_d1 = conv(32, 1, isReLU=False)
+
+        # self.conv_sf = nn.Sequential(
+        #   conv(32, 32),  # testing
+        #   conv(32, 16),  # testing
+        #   conv(16, 3, isReLU=False),
+        # )
+
+        # self.conv_d1 = nn.Sequential(
+        #   conv(32, 32),  # testing
+        #   conv(32, 16),  # testing
+        #   conv(16, 1, isReLU=False)
+        # )
 
     def forward(self, x):
 
@@ -285,6 +306,18 @@ class ContextNetwork(nn.Module):
             conv(96, 64, 3, 1, 16),
             conv(64, 32, 3, 1, 1)
         )
+        # self.conv_sf = nn.Sequential(
+        #   conv(32, 32),  # testing
+        #   conv(32, 16),  # testing
+        #   conv(16, 3, isReLU=False),
+        # )
+
+        # self.conv_d1 = nn.Sequential(
+        #   conv(32, 32),  # testing
+        #   conv(32, 16),  # testing
+        #   conv(16, 1, isReLU=False),
+        #   torch.nn.Sigmoid()
+        # )
         self.conv_sf = conv(32, 3, isReLU=False)
         self.conv_d1 = nn.Sequential(
             conv(32, 1, isReLU=False),
@@ -298,3 +331,40 @@ class ContextNetwork(nn.Module):
         disp1 = self.conv_d1(x_out) * 0.3
 
         return sf, disp1
+
+# class Resnet(nn.Module):
+#     def __init__(self, orig_resnet):
+#         super(Resnet, self).__init__()
+
+#         # take pretrained resnet, except AvgPool and FC
+#         self.conv1 = orig_resnet.conv1
+#         self.bn1 = orig_resnet.bn1
+#         self.relu1 = orig_resnet.relu1
+#         self.conv2 = orig_resnet.conv2
+#         self.bn2 = orig_resnet.bn2
+#         self.relu2 = orig_resnet.relu2
+#         self.conv3 = orig_resnet.conv3
+#         self.bn3 = orig_resnet.bn3
+#         self.relu3 = orig_resnet.relu3
+#         self.maxpool = orig_resnet.maxpool
+#         self.layer1 = orig_resnet.layer1
+#         self.layer2 = orig_resnet.layer2
+#         self.layer3 = orig_resnet.layer3
+#         self.layer4 = orig_resnet.layer4
+
+#     def forward(self, x, return_feature_maps=False):
+#         conv_out = []
+
+#         x = self.relu1(self.bn1(self.conv1(x)))
+#         x = self.relu2(self.bn2(self.conv2(x)))
+#         x = self.relu3(self.bn3(self.conv3(x)))
+#         x = self.maxpool(x)
+
+#         x = self.layer1(x); conv_out.append(x);
+#         x = self.layer2(x); conv_out.append(x);
+#         x = self.layer3(x); conv_out.append(x);
+#         x = self.layer4(x); conv_out.append(x);
+
+#         if return_feature_maps:
+#             return conv_out
+#         return [x]
