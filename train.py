@@ -27,7 +27,7 @@ from loss_consistency import Loss_SceneFlow_SelfSup_Consistency, Loss_SceneFlow_
 from utils.sceneflow_util import disp2depth_kitti
 
 
-parser = argparse.ArgumentParser(description="Self Supervised Joint Learning of Scene Flow and Motion Segmentation",
+parser = argparse.ArgumentParser(description="Self Supervised Joint Learning of Scene Flow, Rigid Camera Motion, and Motion Segmentation",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 # runtime params
@@ -38,7 +38,9 @@ parser.add_argument('--cuda', type=bool, default=True, help='use gpu?')
 parser.add_argument('--no_logging', type=bool, default=False, help="are you logging this experiment?")
 parser.add_argument('--log_dir', type=str, default="/external/cnet/checkpoints", help="are you logging this experiment?")
 parser.add_argument('--exp_name', type=str, default='test', help='name of experiment, chkpts stored in checkpoints/experiment')
+parser.add_argument('--multi_gpu', type=bool, default=False, help='use multiple gpus')
 parser.add_argument('--debugging', type=bool, default=False, help='are you debugging?')
+parser.add_argument('--ckpt', type=str, default="", help="path to model checkpoint if using one")
 
 # dataset params
 parser.add_argument('--dataset_name', default='KITTI', help='KITTI or Carla')
@@ -113,8 +115,7 @@ def main():
 
   # load optimizer and lr scheduler
   optimizer = Adam(model.parameters(), lr=args.lr, betas=[args.momentum, args.beta], weight_decay=args.weight_decay)
-  # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [50, 80, 200, 300], gamma=0.1)
-  lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, verbose=True, mode='min', patience=10)
+  lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.9, verbose=True, mode='min', patience=10)
   lr_scheduler=None
 
   # set up logging
@@ -124,7 +125,15 @@ def main():
       os.mkdir(log_dir)
     writer = SummaryWriter(log_dir)
 
-  if args.start_epoch > 0:
+  if args.ckpt != "":
+    state_dict = torch.load(args.ckpt)['state_dict']
+    from collections import OrderedDict
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+      name = k[7:] # remove `module.`
+      new_state_dict[name] = v
+    model.load_state_dict(new_state_dict)
+  elif args.start_epoch > 0:
     load_epoch = args.start_epoch - 1
     ckpt_fp = os.path.join(log_dir, f"{load_epoch}.ckpt")
 
@@ -139,8 +148,8 @@ def main():
   for epoch in range(args.start_epoch, args.epochs + 1):
     print(f"Training epoch: {epoch}...")
     train_loss_avg_dict, output_dict, input_dict = train_one_epoch(args, model, loss, train_dataloader, optimizer, augmentations, lr_scheduler)
-    # print(f"\t Epoch {epoch} train loss avg:")
-    # pprint(train_loss_avg_dict)
+    print(f"\t Epoch {epoch} train loss avg:")
+    pprint(train_loss_avg_dict)
 
     if val_dataset is not None:
       print(f"Validation epoch: {epoch}...")
@@ -283,6 +292,7 @@ def eval(args, model, loss, dataloader, augmentations):
 
   val_loss_avg = val_loss_sum / len(dataloader)
   return val_loss_avg
+
 
 def visualize_output(args, input_dict, output_dict, epoch, writer=None):
 

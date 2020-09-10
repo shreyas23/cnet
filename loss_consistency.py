@@ -213,14 +213,6 @@ class Loss_SceneFlow_SelfSup_Consistency(nn.Module):
                          k_1_aug, k_2_aug,
                          cam_tform, aug_size, baseline):
 
-        if self._args.debugging:
-          print("\n############# CONSISTENCY LOSS DEBUG #############\n")
-
-        # pts_1_tfs =   []
-        # pts_2_tfs =   []
-        # pts_1_warp =  []
-        # pts_2_warp =  []
-
         ## format: [left, right] ## 
         imgs_1_warp = [] 
         imgs_2_warp = []
@@ -645,15 +637,20 @@ class Loss_SceneFlow_SelfSup_Consistency_Decomposed(nn.Module):
         disp_r1 = torch.where(disp_r1_s <= disp_r1_d, disp_r1_s, disp_r1_d)
         disp_r2 = torch.where(disp_r2_s <= disp_r2_d, disp_r2_s, disp_r2_d)
 
+        _, _, h_dp, w_dp = sf_f_s.size()
+        disp_l1 = disp_l1 * w_dp
+        disp_l2 = disp_l2 * w_dp
+        disp_r1 = disp_r1 * w_dp
+        disp_r2 = disp_r2 * w_dp
+
         # disp_l1_occ = _adaptive_disocc_detection_disp(disp_l1)
         disp_r1_occ = _adaptive_disocc_detection_disp(disp_r1)
 
         # egomotion consistency loss
         depth_l1 = disp2depth_kitti(disp_l1, k_l1_aug[:, 0, 0], baseline=baseline).squeeze(1)
-        depth_l2 = disp2depth_kitti(disp_l2, k_l1_aug[:, 0, 0], baseline=baseline).squeeze(1)
+        depth_l2 = disp2depth_kitti(disp_l2, k_l2_aug[:, 0, 0], baseline=baseline).squeeze(1)
         depth_r1 = disp2depth_kitti(disp_r1, k_r1_aug[:, 0, 0], baseline=baseline).squeeze(1)
-        depth_r2 = disp2depth_kitti(disp_r2, k_r1_aug[:, 0, 0], baseline=baseline).squeeze(1)
-
+        depth_r2 = disp2depth_kitti(disp_r2, k_r2_aug[:, 0, 0], baseline=baseline).squeeze(1)
         cam_flow_l_f = pose2flow(depth_l1, cms_f_l, k_l1_aug, torch.inverse(k_l1_aug))
 
         # to generate occl. masks
