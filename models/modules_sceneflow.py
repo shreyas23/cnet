@@ -34,31 +34,33 @@ class BasicBlock(nn.Module):
 
       return out
 
-
 class ResNetEncoder(nn.Module):
-    def __init__(self, in_chs, use_bn=True, with_ppm=False):
+    def __init__(self, conv_chs=None, use_bn=True, with_ppm=False):
         super(ResNetEncoder, self).__init__()
+        if conv_chs is None:
+          self.conv_chs = [3, 32, 64, 128, 128]
+        else:
+          self.conv_chs = conv_chs
 
-        self.in_chs = in_chs
+        self.in_chs = conv_chs[1]
 
         self.conv1 = nn.Sequential(
-          conv_bn(3,  32, 3, 2, 1, 1, use_bn=use_bn),
-          conv_bn(32, 32, 3, 1, 1, 1, use_bn=use_bn),
-          conv_bn(32, 32, 3, 1, 1, 1, use_bn=use_bn))
+          conv_bn(conv_chs[0], self.in_chs, 3, 2, 1, 1, use_bn=use_bn),
+          conv_bn(self.in_chs, self.in_chs, 3, 1, 1, 1, use_bn=use_bn),
+          conv_bn(self.in_chs, self.in_chs, 3, 1, 1, 1, use_bn=use_bn))
 
-        self.res1 = self._make_layer(BasicBlock, 32, 3, 2, 1, 1, use_bn=use_bn)
-        self.res2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1, use_bn=use_bn)
-        self.res3 = self._make_layer(BasicBlock, 128, 3, 2, 1, 1, use_bn=use_bn)
-        self.res4 = self._make_layer(BasicBlock, 256, 3, 2, 1, 1, use_bn=use_bn)
+        self.res_layers = nn.ModuleList()
+        for conv_ch in conv_chs[1:]:
+            self.res_layers.append(self._make_layer(BasicBlock, conv_ch, 3, 2, 1, 1, use_bn=use_bn))
 
-        if with_ppm:
-          self.ppm = PPM(
-            [32, 32, 64, 128, 128],
-            ppm_last_conv_chs=128,
-            ppm_inter_conv_chs=128,
-            bn_type=bn_type)
-        else:
-          self.ppm = None
+        # if with_ppm:
+        #   self.ppm = PPM(
+        #     [32, 32, 64, 128, 128],
+        #     ppm_last_conv_chs=128,
+        #     ppm_inter_conv_chs=128,
+        #     bn_type=bn_type)
+        # else:
+        #   self.ppm = None
 
     def _make_layer(self, block, chs, blocks, stride, pad, dilation, use_bn=True):
       downsample = None
@@ -80,14 +82,37 @@ class ResNetEncoder(nn.Module):
 
     def forward(self, x):
       out1 = self.conv1(x)
-      out2 = self.res1(out1)
-      out3 = self.res2(out2)
-      out4 = self.res3(out3)
-      out5 = self.res4(out4)
+      outs = [out1]
 
-      if self.ppm is not None:
-        out5_2 = self.ppm(out5)
-      else:
-        out5_2 = None
+      for res_layer in self.res_layers:
+        outs.append(res_layer(outs[-1]))
+      # if self.ppm is not None:
+      #   outs.append(self.ppm(outs[-1]))
+      # else:
+      #   outs.append(None)
 
-      return [out1, out2, out3, out4, out5, out5_2]
+      return outs
+
+class PWCEncoder(nn.Module):
+    def __init__(self, conv_chs=None):
+        super(PWCEncoder, self).__init__()
+        
+        if conv_chs is None:
+            self.conv_chs = [3, 32, 64, 128, 256, 512]
+        else:
+            self.conv_chs = conv_chs
+            
+        self.convs = nn.ModuleList()
+        
+        for in_ch, out_ch in zip(self.conv_chs[:-1], self.conv_chs[1:]):
+            self.convs.append(convbn(in_ch, out_ch))
+            
+    def init_weights(self):
+        return None
+    
+    def forward(self, x):
+        fp = []
+        for conv in self.convs:
+            x = conv(x)
+            fp.append(x)
+        return fp
