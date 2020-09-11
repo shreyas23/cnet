@@ -6,15 +6,25 @@ import torch.nn.functional as tf
     https://github.com/NVlabs/SENSE/blob/master/sense/models/common.py
 """
 
-def conv_bn(in_chs, out_chs, kernel_size=3, stride=1, padding=1, dilation=1, bias=True, use_relu=True, use_bn=True):
-    layers = []
-    layers.append(nn.Conv2d(in_chs, out_chs, kernel_size=kernel_size, 
-                  stride=stride, padding=padding, dilation=dilation, bias=bias))   
-    if use_bn:
-      layers.append(nn.BatchNorm2d(out_chs))
-    if use_relu:
-        layers.append(nn.ReLU())
-    return nn.Sequential(*layers)
+
+def conv(in_chs, out_chs, kernel_size=3, stride=1, dilation=1, bias=True, use_relu=True, use_bn=True):
+  layers = []
+  layers.append(nn.Conv2d(in_chs, out_chs, kernel_size=kernel_size, stride=stride, dilation=dilation, padding=((kernel_size - 1) * dilation) // 2, bias=bias))
+  if use_bn:
+    layers.append(nn.BatchNorm2d(out_chs))
+  if use_relu:
+    layers.append(nn.LeakyReLU(0.1, inplace=True))
+  
+  return nn.Sequential(*layers)
+
+
+def apply_rigidity_mask(static, dynamic, rigidity_mask, mask_thresh=0.5, use_thresh=True):
+  _, ch, _, _ = static.shape
+  if use_thresh:
+    rigidity_mask = 1. * (rigidity_mask >= mask_thresh).repeat(1, ch, 1, 1).float()
+  merged_flow = static * (1. - rigidity_mask) + dynamic * rigidity_mask
+  return merged_flow
+
 
 def flow_warp(x, flo):
     """warp an image/tensor (im2) back to im1, according to the optical flow
