@@ -70,14 +70,14 @@ class SceneNet(nn.Module):
     return
 
 
-  def pwc_forward(self, data_dict):
+  def pwc_forward(self, data_dict, img_l1, img_l2, img_r1, img_r2, k1, k2):
 
-    img_l1 = data_dict['input_l1_aug']
-    img_l2 = data_dict['input_l2_aug']
-    img_r1 = data_dict['input_r1_aug']
-    img_r2 = data_dict['input_r2_aug']
-    k1 = data_dict['input_k_l1']
-    k2 = data_dict['input_k_l2']
+    # img_l1 = data_dict['input_l1_aug']
+    # img_l2 = data_dict['input_l2_aug']
+    # img_r1 = data_dict['input_r1_aug']
+    # img_r2 = data_dict['input_r2_aug']
+    # k1 = data_dict['input_k_l1']
+    # k2 = data_dict['input_k_l2']
 
     output_dict = {}
 
@@ -175,11 +175,30 @@ class SceneNet(nn.Module):
     return output_dict
 
   def forward(self, input_dict):
-    output_dict = self.pwc_forward(input_dict)
+    output_dict = self.pwc_forward(input_dict, 
+                                   input_dict['input_l1_aug'], 
+                                   input_dict['input_l2_aug'], 
+                                   input_dict['input_r1_aug'], 
+                                   input_dict['input_r2_aug'],
+                                   input_dict['input_k_l1_aug'],
+                                   input_dict['input_k_l2_aug'])
 
     # flip inputs for extra training dataset
-    # if self.training:
-    #   input_dict_flipped = input_dict
-    #   output_dict_r = self.pwc_forward(input_dict_flipped)
+    if self.training:
+      input_r1_flip = torch.flip(input_dict['input_r1_aug'], [3])
+      input_r2_flip = torch.flip(input_dict['input_r2_aug'], [3])
+      input_l1_flip = torch.flip(input_dict['input_l1_aug'], [3])
+      input_l2_flip = torch.flip(input_dict['input_l2_aug'], [3])
+      k_r1_flip = input_dict["input_k_r1_flip_aug"]
+      k_r2_flip = input_dict["input_k_r2_flip_aug"]
+
+      output_dict_r = self.pwc_forward(input_dict,
+                                       input_r1_flip,
+                                       input_r2_flip,
+                                       input_l1_flip,
+                                       input_l2_flip,
+                                       k_r1_flip,
+                                       k_r2_flip)
+      output_dict['output_dict_r'] = output_dict_r
 
     return output_dict

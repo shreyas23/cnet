@@ -205,7 +205,7 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
                 img_l1, img_l2,
                 aug_size, ii):
 
-    _, _, _, w = disp1.size()
+    _, _, _, w = disp_l1.size()
 
     disp_l1 = disp_l1 * w
     disp_l2 = disp_l2 * w
