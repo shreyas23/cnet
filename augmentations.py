@@ -9,6 +9,22 @@ from utils.interpolation import interpolate2d
 from utils.interpolation import Meshgrid
 
 
+def _intrinsic_scale(intrinsic, sx, sy):
+    out = intrinsic.clone()
+    out[:, 0, 0] *= sx
+    out[:, 0, 2] *= sx
+    out[:, 1, 1] *= sy
+    out[:, 1, 2] *= sy
+    return out
+
+
+def _intrinsic_crop(intrinsic, str_x, str_y):
+    out = intrinsic.clone()
+    out[:, 0, 2] -= str_x
+    out[:, 1, 2] -= str_y
+    return out
+
+
 class PhotometricAugmentation(nn.Module):
     def __init__(self):
         super(PhotometricAugmentation, self).__init__()
@@ -59,74 +75,6 @@ class PhotometricAugmentation(nn.Module):
         split = torch.chunk(concat_data, num_splits, dim=1)
 
         return split
-
-
-class _IdentityParams(nn.Module):
-    def __init__(self):
-        super(_IdentityParams, self).__init__()
-        self._batch_size = 0
-        self._device = None
-        self._o = None
-        self._i = None
-        self._identity_params = None
-
-    def _update(self, batch_size, device):
-        self._o = torch.zeros([batch_size, 1, 1], device=device).float()
-        self._i = torch.ones([batch_size, 1, 1], device=device).float()
-        r1 = torch.cat([self._i, self._o, self._o], dim=2)
-        r2 = torch.cat([self._o, self._i, self._o], dim=2)
-        r3 = torch.cat([self._o, self._o, self._i], dim=2)
-        return torch.cat([r1, r2, r3], dim=1)
-
-    def forward(self, batch_size, device):
-        if self._batch_size != batch_size or self._device != device:
-            self._identity_params = self._update(batch_size, device)
-            self._batch_size = batch_size
-            self._device = device
-
-        return self._identity_params.clone()
-
-
-def _intrinsic_scale(intrinsic, sx, sy):
-    out = intrinsic.clone()
-    out[:, 0, 0] *= sx
-    out[:, 0, 2] *= sx
-    out[:, 1, 1] *= sy
-    out[:, 1, 2] *= sy
-    return out
-
-
-def _intrinsic_crop(intrinsic, str_x, str_y):
-    out = intrinsic.clone()
-    out[:, 0, 2] -= str_x
-    out[:, 1, 2] -= str_y
-    return out
-
-
-######################################################
-
-# MonoDepthBaseline
-class Augmentation_MonoDepthBaseline(nn.Module):
-    def __init__(self, args, photometric=True):
-        super(Augmentation_MonoDepthBaseline, self).__init__()
-
-        # init
-        self._args = args
-        self._photometric = photometric
-        self._photo_augmentation = PhotometricAugmentation()
-
-    def forward(self, example_dict):
-
-        im_l1 = example_dict["input_l1"]
-        im_r1 = example_dict["input_r1"]
-
-        if self._photometric and torch.rand(1) > 0.5:
-            im_l1, im_r1 = self._photo_augmentation(im_l1, im_r1)
-
-        example_dict["input_l1"] = im_l1
-        example_dict["input_r1"] = im_r1
-
-        return example_dict
 
 
 class Augmentation_ScaleCrop(nn.Module):
@@ -317,6 +265,131 @@ class Augmentation_ScaleCrop(nn.Module):
         return intrinsics
 
 
+class Augmentation_Resize_Only(nn.Module):
+    def __init__(self, args, photometric=False, imgsize=[256, 832]):
+        super(Augmentation_Resize_Only, self).__init__()
+
+        # init
+        self._args = args
+        self._imgsize = imgsize
+        self._isRight = False
+        self._photometric = photometric
+        self._photo_augmentation = PhotometricAugmentation()
+
+    def forward(self, example_dict):
+
+        if ('input_r1' in example_dict) and ('input_r2' in example_dict):
+            self._isRight = True
+
+        # Focal length rescaling
+        _, _, hh, ww = example_dict["input_l1"].size()
+        sy = self._imgsize[0] / hh
+        sx = self._imgsize[1] / ww
+
+        # Image resizing
+        im_l1 = interpolate2d(example_dict["input_l1"], self._imgsize)
+        im_l2 = interpolate2d(example_dict["input_l2"], self._imgsize)
+        k_l1 = _intrinsic_scale(example_dict["input_k_l1"], sx, sy)
+        k_l2 = _intrinsic_scale(example_dict["input_k_l2"], sx, sy)
+
+        if self._isRight:
+            im_r1 = interpolate2d(example_dict["input_r1"], self._imgsize)
+            im_r2 = interpolate2d(example_dict["input_r2"], self._imgsize)
+            k_r1 = _intrinsic_scale(example_dict["input_k_r1"], sx, sy)
+            k_r2 = _intrinsic_scale(example_dict["input_k_r2"], sx, sy)
+
+        if self._photometric and torch.rand(1) > 0.5:
+            if self._isRight:
+                im_l1, im_l2, im_r1, im_r2 = self._photo_augmentation(
+                    im_l1, im_l2, im_r1, im_r2)
+            else:
+                im_l1, im_l2 = self._photo_augmentation(im_l1, im_l2)
+
+        example_dict["input_l1_aug"] = im_l1
+        example_dict["input_l2_aug"] = im_l2
+        example_dict["input_k_l1_aug"] = k_l1
+        example_dict["input_k_l2_aug"] = k_l2
+
+        if self._isRight:
+            example_dict["input_r1_aug"] = im_r1
+            example_dict["input_r2_aug"] = im_r2
+            example_dict["input_k_r1_aug"] = k_r1
+            example_dict["input_k_r2_aug"] = k_r2
+
+        k_l1_flip = k_l1.clone()
+        k_l2_flip = k_l2.clone()
+        k_l1_flip[:, 0, 2] = im_l1.size(3) - k_l1_flip[:, 0, 2]
+        k_l2_flip[:, 0, 2] = im_l2.size(3) - k_l2_flip[:, 0, 2]
+        example_dict["input_k_l1_flip_aug"] = k_l1_flip
+        example_dict["input_k_l2_flip_aug"] = k_l2_flip
+
+        if self._isRight:
+            k_r1_flip = k_r1.clone()
+            k_r2_flip = k_r2.clone()
+            k_r1_flip[:, 0, 2] = im_r1.size(3) - k_r1_flip[:, 0, 2]
+            k_r2_flip[:, 0, 2] = im_r2.size(3) - k_r2_flip[:, 0, 2]
+            example_dict["input_k_r1_flip_aug"] = k_r1_flip
+            example_dict["input_k_r2_flip_aug"] = k_r2_flip
+
+        aug_size = torch.zeros_like(example_dict["input_size"])
+        aug_size[:, 0] = self._imgsize[0]
+        aug_size[:, 1] = self._imgsize[1]
+        example_dict["aug_size"] = aug_size
+
+        return example_dict
+
+
+class _IdentityParams(nn.Module):
+    def __init__(self):
+        super(_IdentityParams, self).__init__()
+        self._batch_size = 0
+        self._device = None
+        self._o = None
+        self._i = None
+        self._identity_params = None
+
+    def _update(self, batch_size, device):
+        self._o = torch.zeros([batch_size, 1, 1], device=device).float()
+        self._i = torch.ones([batch_size, 1, 1], device=device).float()
+        r1 = torch.cat([self._i, self._o, self._o], dim=2)
+        r2 = torch.cat([self._o, self._i, self._o], dim=2)
+        r3 = torch.cat([self._o, self._o, self._i], dim=2)
+        return torch.cat([r1, r2, r3], dim=1)
+
+    def forward(self, batch_size, device):
+        if self._batch_size != batch_size or self._device != device:
+            self._identity_params = self._update(batch_size, device)
+            self._batch_size = batch_size
+            self._device = device
+
+        return self._identity_params.clone()
+
+######################################################
+
+# MonoDepthBaseline
+class Augmentation_MonoDepthBaseline(nn.Module):
+    def __init__(self, args, photometric=True):
+        super(Augmentation_MonoDepthBaseline, self).__init__()
+
+        # init
+        self._args = args
+        self._photometric = photometric
+        self._photo_augmentation = PhotometricAugmentation()
+
+    def forward(self, example_dict):
+
+        im_l1 = example_dict["input_l1"]
+        im_r1 = example_dict["input_r1"]
+
+        if self._photometric and torch.rand(1) > 0.5:
+            im_l1, im_r1 = self._photo_augmentation(im_l1, im_r1)
+
+        example_dict["input_l1"] = im_l1
+        example_dict["input_r1"] = im_r1
+
+        return example_dict
+
+
 class Augmentation_SceneFlow_Carla(Augmentation_ScaleCrop):
     def __init__(self, args, photometric=True, trans=0.07, scale=[0.93, 1.0], resize=[256, 832]):
         super(Augmentation_SceneFlow, self).__init__(
@@ -431,6 +504,7 @@ class Augmentation_SceneFlow_Carla(Augmentation_ScaleCrop):
 
         return example_dict
 
+
 class Augmentation_SceneFlow(Augmentation_ScaleCrop):
     def __init__(self, args, photometric=True, trans=0.07, scale=[0.93, 1.0], resize=[256, 832]):
         super(Augmentation_SceneFlow, self).__init__(
@@ -520,7 +594,6 @@ class Augmentation_SceneFlow(Augmentation_ScaleCrop):
         return example_dict
 
 
-
 class Augmentation_MonoDepth(Augmentation_ScaleCrop):
     def __init__(self, args, photometric=True, trans=0.1, scale=[0.9, 1.0], resize=[256, 512]):
         super(Augmentation_MonoDepth, self).__init__(
@@ -578,9 +651,8 @@ class Augmentation_MonoDepth(Augmentation_ScaleCrop):
 
         return example_dict
 
+
 # Only for finetuning. Because the sparse GT cannot be interpolated, we just use cropping
-
-
 class Augmentation_SceneFlow_Finetuning(nn.Module):
     def __init__(self, args, photometric=True, imgsize=[256, 832]):
         super(Augmentation_SceneFlow_Finetuning, self).__init__()
@@ -720,76 +792,3 @@ class Augmentation_SceneFlow_Finetuning(nn.Module):
 
         return example_dict
 
-
-class Augmentation_Resize_Only(nn.Module):
-    def __init__(self, args, photometric=False, imgsize=[256, 832]):
-        super(Augmentation_Resize_Only, self).__init__()
-
-        # init
-        self._args = args
-        self._imgsize = imgsize
-        self._isRight = False
-        self._photometric = photometric
-        self._photo_augmentation = PhotometricAugmentation()
-
-    def forward(self, example_dict):
-
-        if ('input_r1' in example_dict) and ('input_r2' in example_dict):
-            self._isRight = True
-
-        # Focal length rescaling
-        _, _, hh, ww = example_dict["input_l1"].size()
-        sy = self._imgsize[0] / hh
-        sx = self._imgsize[1] / ww
-
-        # Image resizing
-        im_l1 = interpolate2d(example_dict["input_l1"], self._imgsize)
-        im_l2 = interpolate2d(example_dict["input_l2"], self._imgsize)
-        k_l1 = _intrinsic_scale(example_dict["input_k_l1"], sx, sy)
-        k_l2 = _intrinsic_scale(example_dict["input_k_l2"], sx, sy)
-
-        if self._isRight:
-            im_r1 = interpolate2d(example_dict["input_r1"], self._imgsize)
-            im_r2 = interpolate2d(example_dict["input_r2"], self._imgsize)
-            k_r1 = _intrinsic_scale(example_dict["input_k_r1"], sx, sy)
-            k_r2 = _intrinsic_scale(example_dict["input_k_r2"], sx, sy)
-
-        if self._photometric and torch.rand(1) > 0.5:
-            if self._isRight:
-                im_l1, im_l2, im_r1, im_r2 = self._photo_augmentation(
-                    im_l1, im_l2, im_r1, im_r2)
-            else:
-                im_l1, im_l2 = self._photo_augmentation(im_l1, im_l2)
-
-        example_dict["input_l1_aug"] = im_l1
-        example_dict["input_l2_aug"] = im_l2
-        example_dict["input_k_l1_aug"] = k_l1
-        example_dict["input_k_l2_aug"] = k_l2
-
-        if self._isRight:
-            example_dict["input_r1_aug"] = im_r1
-            example_dict["input_r2_aug"] = im_r2
-            example_dict["input_k_r1_aug"] = k_r1
-            example_dict["input_k_r2_aug"] = k_r2
-
-        k_l1_flip = k_l1.clone()
-        k_l2_flip = k_l2.clone()
-        k_l1_flip[:, 0, 2] = im_l1.size(3) - k_l1_flip[:, 0, 2]
-        k_l2_flip[:, 0, 2] = im_l2.size(3) - k_l2_flip[:, 0, 2]
-        example_dict["input_k_l1_flip_aug"] = k_l1_flip
-        example_dict["input_k_l2_flip_aug"] = k_l2_flip
-
-        if self._isRight:
-            k_r1_flip = k_r1.clone()
-            k_r2_flip = k_r2.clone()
-            k_r1_flip[:, 0, 2] = im_r1.size(3) - k_r1_flip[:, 0, 2]
-            k_r2_flip[:, 0, 2] = im_r2.size(3) - k_r2_flip[:, 0, 2]
-            example_dict["input_k_r1_flip_aug"] = k_r1_flip
-            example_dict["input_k_r2_flip_aug"] = k_r2_flip
-
-        aug_size = torch.zeros_like(example_dict["input_size"])
-        aug_size[:, 0] = self._imgsize[0]
-        aug_size[:, 1] = self._imgsize[1]
-        example_dict["aug_size"] = aug_size
-
-        return example_dict

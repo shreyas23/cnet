@@ -5,9 +5,9 @@ import torch.nn.functional as tf
 from .common import conv
 
 
-class CameraMotionDecoder(nn.Module):
+class PoseDecoder(nn.Module):
   def __init__(self, in_ch, num_refs=1, use_bn=True):
-    super(CameraMotionDecoder, self).__init__()
+    super(PoseDecoder, self).__init__()
 
     conv_chs = [64, 128, 128, 256, 256, 6*num_refs]
     self.convs = nn.Sequential(
@@ -45,9 +45,9 @@ class MaskNetDecoder(nn.Module):
       return x
 
 
-class CameraMotionMaskNet(nn.Module):
+class PoseMaskNet(nn.Module):
   def __init__(self, in_ch, num_refs=1, use_bn=True):
-    super(CameraMotionMaskNet, self).__init__()
+    super(PoseMaskNet, self).__init__()
     shared_chs = [128, 256]
     cam_chs = [256, 6*num_refs]
     mask_chs = [256, 128, 64, 32, 16, num_refs]

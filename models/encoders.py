@@ -88,7 +88,7 @@ class ResNetEncoder(nn.Module):
       # else:
       #   outs.append(None)
 
-      return outs
+      return outs[::-1]
 
 
 class PWCEncoder(nn.Module):
@@ -96,13 +96,13 @@ class PWCEncoder(nn.Module):
     super(PWCEncoder, self).__init__()
       
     if conv_chs is None:
-      self.conv_chs = [3, 32, 64, 128, 256, 512]
+      self.conv_chs = [3, 32, 64, 96, 128, 192, 256]
     else:
       self.conv_chs = conv_chs
           
     self.convs = nn.ModuleList()
       
-    for in_ch, out_ch in zip(self.conv_chs[:-1], self.conv_chs[1:]):
+    for i, (in_ch, out_ch) in enumerate(zip(self.conv_chs[:-1], self.conv_chs[1:])):
       layers = nn.Sequential(
         conv(in_ch, out_ch, stride=2),
         conv(out_ch, out_ch))
@@ -110,6 +110,10 @@ class PWCEncoder(nn.Module):
           
   def forward(self, x):
     fp = []
-    for conv in self.convs:
-      fp.append(conv(x))
-    return fp
+    for i, conv in enumerate(self.convs):
+      if i==0:
+        fp.append(conv(x))
+      else:
+        fp.append(conv(fp[-1]))
+
+    return fp[::-1]
