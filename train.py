@@ -7,7 +7,6 @@ from time import time
 from tqdm import tqdm
 from pprint import pprint
 import matplotlib.pyplot as plt
-from torchsummary import summary
 from collections import OrderedDict
 
 import torch
@@ -256,7 +255,7 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
 
 def train_one_epoch(args, model, loss, dataloader, optimizer, augmentations, lr_scheduler):
 
-  keys =  ['total_loss', 'dp', 's_2', 's_3', 'sf', 's_3s']
+  keys =  ['total_loss', 'dp', 's_2', 's_3', 'sf', 's_3s', 'po']
 
   if args.train_consistency:
     keys.append('cons')
@@ -327,6 +326,8 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
   img_r1 = input_dict['input_r1_aug']
   sf_f = output_dict['flow_f'][0]    
   sf_b = output_dict['flow_b'][0]    
+  pose_f = output_dict['poses_f'][0]
+  pose_b = output_dict['poses_b'][0]
   disp_l1 = output_dict['disp_l1'][0]
   disp_l2 = output_dict['disp_l2'][0]
   k_l1 = input_dict['input_k_l1_aug']

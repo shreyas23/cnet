@@ -210,11 +210,11 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
     disp_l1 = disp_l1 * w
     disp_l2 = disp_l2 * w
     
-    depth_l1 = _disp2depth_kitti_K(disp_l1, intrinsics[:, 0, 0])
-    depth_l2 = _disp2depth_kitti_K(disp_l2, intrinsics[:, 0, 0])
+    depth_l1 = _disp2depth_kitti_K(disp_l1, k_l1[:, 0, 0])
+    depth_l2 = _disp2depth_kitti_K(disp_l2, k_l2[:, 0, 0])
 
-    flow_f = pose2flow(depth_l1, pose_f, k_l1, torch.inverse(k_l1))
-    flow_b = pose2flow(depth_l2, pose_b, k_l2, torch.inverse(k_l2))
+    flow_f = pose2flow(depth_l1.squeeze(dim=0), pose_f, k_l1, torch.inverse(k_l1))
+    flow_b = pose2flow(depth_l2.squeeze(dim=0), pose_b, k_l2, torch.inverse(k_l2))
     occ_map_b = _adaptive_disocc_detection(flow_f).detach() * disp_occ_l2
     occ_map_f = _adaptive_disocc_detection(flow_b).detach() * disp_occ_l1
 
@@ -230,7 +230,7 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
     flow_f_diff[~occ_map_f].detach_()
     flow_b_diff[~occ_map_b].detach_()
 
-    loss_ph = (flow_f_loss + flow_b_loss) * self.cam_ph_w
+    loss_ph = (flow_f_loss + flow_b_loss) * self._cam_ph_w
 
     return loss_ph
 
@@ -325,8 +325,8 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
     for ii in range(0, len(output_dict['flow_f'])):
       output_dict['flow_f'][ii].detach_()
       output_dict['flow_b'][ii].detach_()
-      output_dict['pose_f'][ii].detach_()
-      output_dict['pose_b'][ii].detach_()
+      output_dict['poses_f'][ii].detach_()
+      output_dict['poses_b'][ii].detach_()
       output_dict['disp_l1'][ii].detach_()
       output_dict['disp_l2'][ii].detach_()
     return
@@ -395,7 +395,7 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
                                  img_l1_aug, img_l2_aug, 
                                  aug_size, ii)
 
-      lose_po_sum = loss_po_sum + loss_pose * self._weights[ii]
+      loss_po_sum = loss_po_sum + loss_pose * self._weights[ii]
 
     # finding weight
     f_loss = loss_sf_sum.detach()
