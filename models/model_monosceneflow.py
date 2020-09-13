@@ -30,7 +30,7 @@ class MonoSceneFlow(nn.Module):
 
         self.leakyRELU = nn.LeakyReLU(0.1, inplace=True)
 
-        self.feature_pyramid_extractor = FeatureExtractor(self.num_chs)
+        self.feature_pyramid_extractor = PWCEncoder(self.num_chs)
         self.warping_layer_sf = WarpingLayer_SF()
 
         self.flow_estimators = nn.ModuleList()
@@ -48,7 +48,7 @@ class MonoSceneFlow(nn.Module):
                 num_ch_in = self.dim_corr + ch + 32 + 3 + 1
                 self.upconv_layers.append(upconv_interpolate(32, 32, 3, 2))
 
-            layer_sf = MonoSceneFlowDecoder(num_ch_in)
+            layer_sf = FlowDispDecoder(num_ch_in)
             self.flow_estimators.append(layer_sf)
 
         self.corr_params = {"pad_size": self.search_range, "kernel_size": 1, "max_disp": self.search_range, "stride1": 1, "stride2": 1, "corr_multiply": 1}

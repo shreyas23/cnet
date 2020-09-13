@@ -43,7 +43,7 @@ parser.add_argument('--validate', type=bool, default=False, help='set to true if
 parser.add_argument('--ckpt', type=str, default="", help="path to model checkpoint if using one")
 
 # module params
-parser.add_argument('--model_name', type=str, default="scene_net", help="name of model")
+parser.add_argument('--model_name', type=str, default="scenenet", help="name of model")
 parser.add_argument('--encoder_name', type=str, default="resnet", help="which encoder to use for model")
 
 # dataset params
@@ -116,9 +116,9 @@ def main():
   # load the model
   print("Loding model and augmentations and placing on gpu...")
 
-  if args.model_name == 'scene_net':
+  if args.model_name == 'scenenet':
     model = SceneNet(args)
-  elif args.model_name == 'mono_flow':
+  elif args.model_name == 'monoflow':
     model = MonoSceneFlow(args)
   else:
     raise NotImplementedError

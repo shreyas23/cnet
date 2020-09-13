@@ -199,6 +199,7 @@ class SceneNet(nn.Module):
                                        input_l2_flip,
                                        k_r1_flip,
                                        k_r2_flip)
+
       output_dict['output_dict_r'] = output_dict_r
 
     return output_dict
