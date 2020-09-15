@@ -131,3 +131,28 @@ class FlowDispSplitDecoder(nn.Module):
     x_out = torch.cat([disp_out, sf_out], dim=1)
 
     return x_out, sf, disp1
+
+
+class ContextNetwork(nn.Module):
+  def __init__(self, ch_in, use_bn=True):
+    super(ContextNetwork, self).__init__()
+
+    self.convs = nn.Sequential(
+      conv(ch_in, 128, 3, 1, 1, use_bn=use_bn),
+      conv(128, 128, 3, 1, 2, use_bn=use_bn),
+      conv(128, 128, 3, 1, 4, use_bn=use_bn),
+      conv(128, 96, 3, 1, 8, use_bn=use_bn),
+      conv(96, 64, 3, 1, 16, use_bn=use_bn),
+      conv(64, 32, 3, 1, 1, use_bn=use_bn))
+
+    self.conv_sf = conv(32, 3, use_relu=False, use_bn=False)
+    self.conv_d1 = nn.Sequential(
+      conv(32, 1, use_relu=False, use_bn=False), 
+      torch.nn.Sigmoid())
+
+  def forward(self, x):
+    x_out = self.convs(x)
+    sf = self.conv_sf(x_out)
+    disp1 = self.conv_d1(x_out)  # * 0.3
+
+    return sf, disp1

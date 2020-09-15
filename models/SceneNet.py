@@ -7,7 +7,7 @@ from .encoders import *
 from .decoders import *
 from .modules_sceneflow import interpolate2d_as
 from .correlation_package.correlation import Correlation
-from .modules_sceneflow import WarpingLayer_SF, upconv_interpolate, ContextNetwork, upsample_outputs_as
+from .modules_sceneflow import WarpingLayer_SF, upconv_interpolate, upsample_outputs_as, initialize_msra
     
 class SceneNet(nn.Module):
   def __init__(self, args):
@@ -65,8 +65,11 @@ class SceneNet(nn.Module):
 
     self.init_weights()
 
+    return
   
+
   def init_weights(self):
+    initialize_msra(self.modules())
     return
 
 
