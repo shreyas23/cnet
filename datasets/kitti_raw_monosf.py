@@ -179,8 +179,9 @@ class KITTI_Raw(data.Dataset):
             if os.path.isfile(name_l1) and os.path.isfile(name_l2) and os.path.isfile(name_r1) and os.path.isfile(name_r2):
                 self._image_list.append([name_l1, name_l2, name_r1, name_r2])
 
+        # XXX: CHANGED TO -num_examples JUST FOR NOW!!!!
         if num_examples > 0:
-            self._image_list = self._image_list[:num_examples]
+            self._image_list = self._image_list[-num_examples:]
 
         self._size = len(self._image_list)
 

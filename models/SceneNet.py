@@ -33,10 +33,6 @@ class SceneNet(nn.Module):
     # decoders
     self.sf_disp_decoders = nn.ModuleList()
     self.pose_decoders = nn.ModuleList()
-    # self.sf_decoders = nn.ModuleList()
-    # self.disp_decoders = nn.ModuleList()
-    # self.mask_decoders = nn.ModuleList()
-
     self.upconv_layers = nn.ModuleList()
 
     self.dim_corr = (self.search_range * 2 + 1) ** 2
@@ -74,13 +70,6 @@ class SceneNet(nn.Module):
 
 
   def pwc_forward(self, data_dict, img_l1, img_l2, img_r1, img_r2, k1, k2):
-
-    # img_l1 = data_dict['input_l1_aug']
-    # img_l2 = data_dict['input_l2_aug']
-    # img_r1 = data_dict['input_r1_aug']
-    # img_r2 = data_dict['input_r2_aug']
-    # k1 = data_dict['input_k_l1']
-    # k2 = data_dict['input_k_l2']
 
     output_dict = {}
 

@@ -23,7 +23,7 @@ from models.SceneNet import SceneNet
 from models.model_monosceneflow import MonoSceneFlow
 
 from utils.inverse_warp import flow_warp, pose2flow, inverse_warp
-from utils.sceneflow_util import projectSceneFlow2Flow, disp2depth_kitti
+from utils.sceneflow_util import projectSceneFlow2Flow, disp2depth_kitti, pixel2pts_ms, pts2pixel_ms, reconstructImg
 
 from losses import Loss_SceneFlow_SelfSup
 from losses_consistency import Loss_SceneFlow_SelfSup_Pose, _generate_image_left, _adaptive_disocc_detection
@@ -56,6 +56,7 @@ parser.add_argument('--num_workers', type=int, default=8, help="number of worker
 parser.add_argument('--shuffle_dataset', type=bool, default=True, help='shuffle the dataset?')
 parser.add_argument('--resize_only', type=bool, default=True, help='only do resize augmentation on input data')
 
+
 # learning params
 parser.add_argument('--lr', type=float, default=2e-4, help='initial learning rate')
 parser.add_argument('--lr_sched_type', type=str, default="none", help="path to model checkpoint if using one")
@@ -80,6 +81,7 @@ parser.add_argument('--cuda_seed', default=1, help='random seed for reproducibil
 
 args  = parser.parse_args()
 
+
 def main():
   torch.manual_seed(args.torch_seed)
   torch.cuda.manual_seed(args.cuda_seed)
@@ -90,7 +92,6 @@ def main():
   # load the dataset/dataloader
   print("Loading dataset and dataloaders...")
   if DATASET_NAME == 'KITTI':
-
     if args.model_name == 'scenenet':
       model = SceneNet(args)
       loss = Loss_SceneFlow_SelfSup_Pose(args)
@@ -101,19 +102,15 @@ def main():
       raise NotImplementedError
 
     # define dataset
-    train_dataset = KITTI_Raw_KittiSplit_Train(args, DATA_ROOT, num_examples=args.num_examples, flip_augmentations=False)
-
-    if args.validate:
-      val_num_examples = int(args.num_examples / 5) if args.num_examples > 0 else -1
-      val_dataset = KITTI_Raw_KittiSplit_Valid(args, DATA_ROOT, num_examples=val_num_examples)
-    else:
-      val_dataset = None
+    train_dataset = KITTI_Raw_KittiSplit_Train(args, DATA_ROOT, num_examples=args.num_examples, flip_augmentations=False, preprocessing_crop=False)
+    val_dataset = KITTI_Raw_KittiSplit_Valid(args, DATA_ROOT, num_examples=args.num_examples)
 
     # define augmentations
     if args.resize_only:
-      print("Only resizing")
+      print("Augmentations: Augmentation_Resize_Only")
       augmentations = Augmentation_Resize_Only(args)
     else:
+      print("Augmentations: Augmentation_SceneFlow")
       augmentations = Augmentation_SceneFlow(args)
   else:
     raise NotImplementedError
@@ -155,7 +152,7 @@ def main():
     state_dict = torch.load(args.ckpt)['state_dict']
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
-      name = k[7:] 
+      name = k[7:]
       new_state_dict[name] = v
     model.load_state_dict(new_state_dict)
   elif args.start_epoch > 0:
@@ -182,18 +179,21 @@ def main():
 
     if not args.no_logging:
       writer.add_scalar('loss/train', train_loss_avg_dict['total_loss'], epoch)
-      # writer.add_scalar('loss/val', val_loss_avg, epoch)
       writer.add_scalar('loss/train/sf', train_loss_avg_dict['sf'], epoch)
       writer.add_scalar('loss/train/dp', train_loss_avg_dict['dp'], epoch)
-      writer.add_scalar('loss/train/po', train_loss_avg_dict['po'], epoch)
       writer.add_scalar('loss/train/s_2', train_loss_avg_dict['s_2'], epoch)
       writer.add_scalar('loss/train/s_3', train_loss_avg_dict['s_3'], epoch)
       writer.add_scalar('loss/train/s_3s', train_loss_avg_dict['s_3s'], epoch)
 
-      if epoch % 20 == 0:
-        visualize_output(args, input_dict, output_dict, epoch, writer)
+      if args.model_name == 'scenenet':
+        writer.add_scalar('loss/train/po', train_loss_avg_dict['po'], epoch)
+      if val_dataset is not None:
+        writer.add_scalar('loss/val', val_loss_avg, epoch)
 
-      # if args.train_consistency:
+      # if epoch % 20 == 0:
+      #   visualize_output(args, input_dict, output_dict, epoch, writer)
+
+      # if args.model_name == 'scenenet':
       #   writer.add_scalar('loss/train/cons/total', train_loss_avg_dict['cons'], epoch)
       #   writer.add_scalar('loss/train/cons/cm', train_loss_avg_dict['cons_dict']['cm'], epoch)
       #   writer.add_scalar('loss/train/cons/mask', train_loss_avg_dict['cons_dict']['mask'], epoch)
@@ -269,9 +269,6 @@ def train_one_epoch(args, model, loss, dataloader, optimizer, augmentations, lr_
 
   for data in tqdm(dataloader):
     loss_dict, output_dict = step(args, data, model, loss, augmentations, optimizer)
-    print(output_dict['flow_f'])
-    print(output_dict['disp_l1'])
-    exit(0)
 
     # calculate gradients and then do Adam step
     optimizer.zero_grad()
@@ -330,24 +327,20 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
   img_l1 = input_dict['input_l1_aug']
   img_l2 = input_dict['input_l2_aug']
   img_r1 = input_dict['input_r1_aug']
-  sf_f = output_dict['flow_f'][0]    
-  sf_b = output_dict['flow_b'][0]    
+  sf_f = output_dict['flow_f'][0]
+  sf_b = output_dict['flow_b'][0]
   disp_l1 = output_dict['disp_l1'][0]
   disp_l2 = output_dict['disp_l2'][0]
   k_l1 = input_dict['input_k_l1_aug']
   k_r1 = input_dict['input_k_r1_aug']
   k_l2 = input_dict['input_k_l2_aug']
   k_r2 = input_dict['input_k_r2_aug']
-  baseline = input_dict['baseline']
+  baseline = input_dict['input_baseline']
   aug_size = input_dict['aug_size']
   if args.model_name == 'scenenet':
     pose_f = output_dict['poses_f'][0]
     pose_b = output_dict['poses_b'][0]
 
-  # un-normalize disparity
-  _, _, h_dp, w_dp = sf_f.size()
-  disp_l1 = disp_l1 * w_dp
-  disp_l2 = disp_l2 * w_dp
 
   # warp img_r1 
   img_r1_warp = _generate_image_left(img_r1, disp_l1)
@@ -361,15 +354,19 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
     cam_occ_f = _adaptive_disocc_detection(cam_flow_b)
     img_l2_cam_warp = flow_warp(img_l2, cam_flow_f)
 
+  _, _, h_dp, w_dp = sf_f.size()
+
   # scale
   local_scale = torch.zeros_like(aug_size)
   local_scale[:, 0] = h_dp
   local_scale[:, 1] = w_dp
 
+  disp_l1 = disp_l1 * w_dp
+
   # inverse warp img_l1 through sf_f
-  pts1, k1_scale = pixel2pts_ms(k_l1_aug, disp_l1, local_scale / aug_size)
+  pts1, k1_scale = pixel2pts_ms(k_l1, disp_l1, local_scale / aug_size)
   _, pts1_tf, coord1 = pts2pixel_ms(k1_scale, pts1, sf_f, [h_dp, w_dp])
-  img_l2_warp = reconstructImg(coord1, img_l2_aug)
+  img_l2_warp = reconstructImg(coord1, img_l2)
 
   flow_b = projectSceneFlow2Flow(k2_scale, sf_b, disp_l2)
   occ_f = _adaptive_disocc_detection(flow_b).detach()
@@ -381,11 +378,11 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
     writer.add_image('img_l2_warp', img_l2_warp.squeeze(), epoch)
     writer.add_image('img_r1_warp', img_r1_warp.squeeze(), epoch)
     writer.add_image('occ_f', occ_f.squeeze(), epoch)
+
     if args.model_name == 'scenenet':
       writer.add_image('img_l2_cam_warp', img_l2_cam_warp.squeeze(), epoch)
       writer.add_image('cam_occ_f', cam_occ_f.squeeze(), epoch)
 
-  return 
 
 if __name__ == '__main__':
   main()
