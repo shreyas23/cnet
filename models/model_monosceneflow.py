@@ -7,10 +7,9 @@ import logging
 
 from .correlation_package.correlation import Correlation
 
-from .modules_sceneflow1 import get_grid, WarpingLayer_SF
-from .modules_sceneflow1 import initialize_msra, upsample_outputs_as
-from .modules_sceneflow1 import upconv
-from .modules_sceneflow1 import FeatureExtractor, MonoSceneFlowDecoder, ContextNetwork
+from .modules_sceneflow import get_grid, WarpingLayer_SF
+from .modules_sceneflow import initialize_msra, upsample_outputs_as, upconv
+from .modules_sceneflow import FeatureExtractor, MonoSceneFlowDecoder, ContextNetwork
 
 from utils.interpolation import interpolate2d_as
 from utils.sceneflow_util import flow_horizontal_flip, intrinsic_scale, get_pixelgrid, post_processing

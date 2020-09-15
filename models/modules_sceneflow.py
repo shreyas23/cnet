@@ -106,12 +106,12 @@ def conv(in_planes, out_planes, kernel_size=3, stride=1, dilation=1, isReLU=True
 
 
 class upconv(nn.Module):
-    def __init__(self, num_in_layers, num_out_layers, kernel_size, scale, interp_type='nearest'):
+    def __init__(self, num_in_layers, num_out_layers, kernel_size, scale):
         super(upconv, self).__init__()
         self.scale = scale
         self.conv1 = conv(num_in_layers, num_out_layers, kernel_size, 1)
 
-    def forward(self, x):
+    def forward(self, x, interp_type='nearest'):
         x = nn.functional.interpolate(x, scale_factor=self.scale, mode=interp_type)
         return self.conv1(x)
 

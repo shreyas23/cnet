@@ -7,7 +7,7 @@ from .encoders import *
 from .decoders import *
 from .modules_sceneflow import interpolate2d_as
 from .correlation_package.correlation import Correlation
-from .modules_sceneflow import WarpingLayer_SF, upconv_interpolate, upsample_outputs_as, initialize_msra
+from .modules_sceneflow import WarpingLayer_SF, upconv, upsample_outputs_as, initialize_msra
     
 class SceneNet(nn.Module):
   def __init__(self, args):
@@ -51,7 +51,7 @@ class SceneNet(nn.Module):
       else:
         sf_in_ch = self.dim_corr + self.dim_corr + ch + ch + 32 + 3 + 1
         pose_in_ch = self.dim_corr + ch + ch + 6
-        self.upconv_layers.append(upconv_interpolate(32, 32, 3, 2))
+        self.upconv_layers.append(upconv(32, 32, 3, 2))
 
       sf_decoder = FlowDispDecoder(sf_in_ch)
       pose_decoder = PoseDecoder(pose_in_ch)

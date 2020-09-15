@@ -25,6 +25,7 @@ from models.model_monosceneflow import MonoSceneFlow
 from utils.inverse_warp import flow_warp, pose2flow, inverse_warp
 from utils.sceneflow_util import projectSceneFlow2Flow, disp2depth_kitti
 
+from losses import Loss_SceneFlow_SelfSup
 from losses_consistency import Loss_SceneFlow_SelfSup_Pose, _generate_image_left, _adaptive_disocc_detection
 
 
@@ -90,6 +91,15 @@ def main():
   print("Loading dataset and dataloaders...")
   if DATASET_NAME == 'KITTI':
 
+    if args.model_name == 'scenenet':
+      model = SceneNet(args)
+      loss = Loss_SceneFlow_SelfSup_Pose(args)
+    elif args.model_name == 'monoflow':
+      model = MonoSceneFlow(args)
+      loss = Loss_SceneFlow_SelfSup(args)
+    else:
+      raise NotImplementedError
+
     # define dataset
     train_dataset = KITTI_Raw_KittiSplit_Train(args, DATA_ROOT, num_examples=args.num_examples, flip_augmentations=False)
 
@@ -101,12 +111,10 @@ def main():
 
     # define augmentations
     if args.resize_only:
+      print("Only resizing")
       augmentations = Augmentation_Resize_Only(args)
     else:
       augmentations = Augmentation_SceneFlow(args)
-
-    # define loss
-    loss = Loss_SceneFlow_SelfSup_Pose(args)
   else:
     raise NotImplementedError
 
@@ -115,13 +123,6 @@ def main():
 
   # load the model
   print("Loding model and augmentations and placing on gpu...")
-
-  if args.model_name == 'scenenet':
-    model = SceneNet(args)
-  elif args.model_name == 'monoflow':
-    model = MonoSceneFlow(args)
-  else:
-    raise NotImplementedError
 
   if args.cuda:
     augmentations = augmentations.cuda()
@@ -255,7 +256,9 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
 
 def train_one_epoch(args, model, loss, dataloader, optimizer, augmentations, lr_scheduler):
 
-  keys =  ['total_loss', 'dp', 's_2', 's_3', 'sf', 's_3s', 'po']
+  keys =  ['total_loss', 'dp', 's_2', 's_3', 'sf', 's_3s']
+  if args.model_name == 'scenenet':
+    keys.append('po')
 
   if args.train_consistency:
     keys.append('cons')
@@ -266,6 +269,9 @@ def train_one_epoch(args, model, loss, dataloader, optimizer, augmentations, lr_
 
   for data in tqdm(dataloader):
     loss_dict, output_dict = step(args, data, model, loss, augmentations, optimizer)
+    print(output_dict['flow_f'])
+    print(output_dict['disp_l1'])
+    exit(0)
 
     # calculate gradients and then do Adam step
     optimizer.zero_grad()
@@ -326,8 +332,6 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
   img_r1 = input_dict['input_r1_aug']
   sf_f = output_dict['flow_f'][0]    
   sf_b = output_dict['flow_b'][0]    
-  pose_f = output_dict['poses_f'][0]
-  pose_b = output_dict['poses_b'][0]
   disp_l1 = output_dict['disp_l1'][0]
   disp_l2 = output_dict['disp_l2'][0]
   k_l1 = input_dict['input_k_l1_aug']
@@ -336,22 +340,26 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
   k_r2 = input_dict['input_k_r2_aug']
   baseline = input_dict['baseline']
   aug_size = input_dict['aug_size']
+  if args.model_name == 'scenenet':
+    pose_f = output_dict['poses_f'][0]
+    pose_b = output_dict['poses_b'][0]
 
   # un-normalize disparity
   _, _, h_dp, w_dp = sf_f.size()
   disp_l1 = disp_l1 * w_dp
   disp_l2 = disp_l2 * w_dp
 
-  # 
+  # warp img_r1 
   img_r1_warp = _generate_image_left(img_r1, disp_l1)
 
-  # inverse warp img_l2 through pose_f
-  depth_l1 = disp2depth_kitti(disp_l1, k_l1[:, 0, 0], baseline)
-  depth_l2 = disp2depth_kitti(disp_l2, k_l2[:, 0, 0], baseline)
-  cam_flow_f = pose2flow(depth_l1, pose_f, k_l1, torch.inverse(k_l1))
-  cam_flow_b = pose2flow(depth_l2, pose_b, k_l2, torch.inverse(k_l2))
-  cam_occ_f = _adaptive_disocc_detection(cam_flow_b)
-  img_l2_cam_warp = flow_warp(img_l2, cam_flow_f)
+  if args.model_name == 'scenenet':
+    # inverse warp img_l2 through pose_f
+    depth_l1 = disp2depth_kitti(disp_l1, k_l1[:, 0, 0], baseline)
+    depth_l2 = disp2depth_kitti(disp_l2, k_l2[:, 0, 0], baseline)
+    cam_flow_f = pose2flow(depth_l1, pose_f, k_l1, torch.inverse(k_l1))
+    cam_flow_b = pose2flow(depth_l2, pose_b, k_l2, torch.inverse(k_l2))
+    cam_occ_f = _adaptive_disocc_detection(cam_flow_b)
+    img_l2_cam_warp = flow_warp(img_l2, cam_flow_f)
 
   # scale
   local_scale = torch.zeros_like(aug_size)
@@ -371,10 +379,11 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
     writer.add_image('input_l2', img_l2.squeeze(), epoch)
     writer.add_image('input_r1', img_r1.squeeze(), epoch)
     writer.add_image('img_l2_warp', img_l2_warp.squeeze(), epoch)
-    writer.add_image('img_l2_cam_warp', img_l2_cam_warp.squeeze(), epoch)
     writer.add_image('img_r1_warp', img_r1_warp.squeeze(), epoch)
     writer.add_image('occ_f', occ_f.squeeze(), epoch)
-    writer.add_image('cam_occ_f', cam_occ_f.squeeze(), epoch)
+    if args.model_name == 'scenenet':
+      writer.add_image('img_l2_cam_warp', img_l2_cam_warp.squeeze(), epoch)
+      writer.add_image('cam_occ_f', cam_occ_f.squeeze(), epoch)
 
   return 
 

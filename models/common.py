@@ -21,7 +21,7 @@ def conv(in_chs, out_chs, kernel_size=3, stride=1, dilation=1, bias=True, use_re
 def apply_rigidity_mask(static, dynamic, rigidity_mask, mask_thresh=0.5, use_thresh=True):
   _, ch, _, _ = static.shape
   if use_thresh:
-    rigidity_mask = 1. * (rigidity_mask >= mask_thresh).repeat(1, ch, 1, 1).float()
+    rigidity_mask = (rigidity_mask >= mask_thresh).repeat(1, ch, 1, 1).float()
   merged_flow = static * (1. - rigidity_mask) + dynamic * rigidity_mask
   return merged_flow
 
