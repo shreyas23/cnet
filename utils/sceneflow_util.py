@@ -46,7 +46,6 @@ def depth2disp(f, depth, baseline=0.54):
 def disp2depth_kitti(pred_disp, k_value, baseline=0.54):
     pred_depth = k_value.unsqueeze(1).unsqueeze(1).unsqueeze(1) * baseline / (pred_disp + 1e-8)
     pred_depth = torch.clamp(pred_depth, 1e-3, 80)
-
     return pred_depth
 
 

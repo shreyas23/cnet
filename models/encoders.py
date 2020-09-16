@@ -32,7 +32,7 @@ class BasicBlock(nn.Module):
 
 
 class ResNetEncoder(nn.Module):
-    def __init__(self, in_chs, conv_chs=None, with_ppm=False, use_bn=True):
+    def __init__(self, in_chs, conv_chs=None, with_ppm=False, use_bn=False):
         super(ResNetEncoder, self).__init__()
         if conv_chs is None:
           self.conv_chs = [32, 32, 64, 128, 128]
@@ -78,8 +78,9 @@ class ResNetEncoder(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-      out1 = self.conv1(x)
-      outs = [out1]
+      outs = [x]
+
+      outs.append(self.conv1(x))
 
       for res_layer in self.res_layers:
         outs.append(res_layer(outs[-1]))
@@ -92,20 +93,16 @@ class ResNetEncoder(nn.Module):
 
 
 class PWCEncoder(nn.Module):
-  def __init__(self, conv_chs=None):
+  def __init__(self, conv_chs=None, use_bn=False):
     super(PWCEncoder, self).__init__()
-      
-    if conv_chs is None:
-      self.conv_chs = [3, 32, 64, 96, 128, 192, 256]
-    else:
-      self.conv_chs = conv_chs
-          
+
+    self.conv_chs = conv_chs
     self.convs = nn.ModuleList()
       
     for in_ch, out_ch in zip(self.conv_chs[:-1], self.conv_chs[1:]):
       layers = nn.Sequential(
-        conv(in_ch, out_ch, stride=2),
-        conv(out_ch, out_ch))
+        conv(in_ch, out_ch, stride=2, use_bn=use_bn),
+        conv(out_ch, out_ch, use_bn=use_bn))
       self.convs.append(layers)
           
   def forward(self, x):
@@ -114,25 +111,3 @@ class PWCEncoder(nn.Module):
         fp.append(conv(fp[-1]))
 
     return fp[::-1]
-
-  
-class FeatureExtractor(nn.Module):
-    def __init__(self, num_chs):
-        super(FeatureExtractor, self).__init__()
-        self.num_chs = num_chs
-        self.convs = nn.ModuleList()
-
-        for l, (ch_in, ch_out) in enumerate(zip(num_chs[:-1], num_chs[1:])):
-            layer = nn.Sequential(
-                conv(ch_in, ch_out, stride=2),
-                conv(ch_out, ch_out)
-            )
-            self.convs.append(layer)
-
-    def forward(self, x):
-        feature_pyramid = []
-        for conv in self.convs:
-            x = conv(x)
-            feature_pyramid.append(x)
-
-        return feature_pyramid[::-1]

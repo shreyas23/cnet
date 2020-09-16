@@ -69,6 +69,7 @@ parser.add_argument('--grad_clip', type=int, default=5, help='gradient clipping 
 # model params
 parser.add_argument('--num_pyramid_levels', type=int, default=6, help='number of pyramid feature levels')
 parser.add_argument('--train_consistency', type=bool, default=False, help="whether to use consistency losses in training procedure")
+parser.add_argument('--use_bn', type=bool, default=False, help="whether to use batch-norm in training procedure")
 parser.add_argument('--mask_thresh', type=float, default=.6, help='mask threshold for moving objects (higher threshold skews towards static)')
 
 # etc. 
@@ -104,6 +105,7 @@ def main():
     # define dataset
     train_dataset = KITTI_Raw_KittiSplit_Train(args, DATA_ROOT, num_examples=args.num_examples, flip_augmentations=False, preprocessing_crop=False)
     val_dataset = KITTI_Raw_KittiSplit_Valid(args, DATA_ROOT, num_examples=args.num_examples)
+    val_dataset = None
 
     # define augmentations
     if args.resize_only:
@@ -190,8 +192,8 @@ def main():
       if val_dataset is not None:
         writer.add_scalar('loss/val', val_loss_avg, epoch)
 
-      # if epoch % 20 == 0:
-      #   visualize_output(args, input_dict, output_dict, epoch, writer)
+      if epoch % 1 == 0:
+        visualize_output(args, input_dict, output_dict, epoch, writer)
 
       # if args.model_name == 'scenenet':
       #   writer.add_scalar('loss/train/cons/total', train_loss_avg_dict['cons'], epoch)
@@ -249,7 +251,7 @@ def step(args, data_dict, model, loss, augmentations, optimizer):
   loss_dict = loss(output_dict, data_dict)
 
   training_loss = loss_dict['total_loss']
-  assert (not torch.isnan(training_loss)), "training_loss is NaN"
+  assert (not torch.isnan(training_loss)), f"training_loss is NaN: {loss_dict}"
 
   return loss_dict, output_dict
 
@@ -335,24 +337,21 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
   k_r1 = input_dict['input_k_r1_aug']
   k_l2 = input_dict['input_k_l2_aug']
   k_r2 = input_dict['input_k_r2_aug']
-  baseline = input_dict['input_baseline']
+  baseline = input_dict['input_baseline'].float()
   aug_size = input_dict['aug_size']
   if args.model_name == 'scenenet':
     pose_f = output_dict['poses_f'][0]
     pose_b = output_dict['poses_b'][0]
-
 
   # warp img_r1 
   img_r1_warp = _generate_image_left(img_r1, disp_l1)
 
   if args.model_name == 'scenenet':
     # inverse warp img_l2 through pose_f
-    depth_l1 = disp2depth_kitti(disp_l1, k_l1[:, 0, 0], baseline)
     depth_l2 = disp2depth_kitti(disp_l2, k_l2[:, 0, 0], baseline)
-    cam_flow_f = pose2flow(depth_l1, pose_f, k_l1, torch.inverse(k_l1))
-    cam_flow_b = pose2flow(depth_l2, pose_b, k_l2, torch.inverse(k_l2))
+    cam_flow_b = pose2flow(depth_l2.squeeze(1), pose_b, k_l2, torch.inverse(k_l2))
     cam_occ_f = _adaptive_disocc_detection(cam_flow_b)
-    img_l2_cam_warp = flow_warp(img_l2, cam_flow_f)
+    img_l1_cam_warp = inverse_warp(img_l1, depth_l2.squeeze(1), pose_b, k_l2, torch.inverse(k_l2))
 
   _, _, h_dp, w_dp = sf_f.size()
 
@@ -362,9 +361,11 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
   local_scale[:, 1] = w_dp
 
   disp_l1 = disp_l1 * w_dp
+  disp_l2 = disp_l2 * w_dp
 
   # inverse warp img_l1 through sf_f
   pts1, k1_scale = pixel2pts_ms(k_l1, disp_l1, local_scale / aug_size)
+  pts2, k2_scale = pixel2pts_ms(k_l2, disp_l2, local_scale / aug_size)
   _, pts1_tf, coord1 = pts2pixel_ms(k1_scale, pts1, sf_f, [h_dp, w_dp])
   img_l2_warp = reconstructImg(coord1, img_l2)
 
@@ -377,11 +378,11 @@ def visualize_output(args, input_dict, output_dict, epoch, writer):
     writer.add_image('input_r1', img_r1.squeeze(), epoch)
     writer.add_image('img_l2_warp', img_l2_warp.squeeze(), epoch)
     writer.add_image('img_r1_warp', img_r1_warp.squeeze(), epoch)
-    writer.add_image('occ_f', occ_f.squeeze(), epoch)
+    writer.add_image('occ_f', occ_f.squeeze(1), epoch)
 
     if args.model_name == 'scenenet':
-      writer.add_image('img_l2_cam_warp', img_l2_cam_warp.squeeze(), epoch)
-      writer.add_image('cam_occ_f', cam_occ_f.squeeze(), epoch)
+      writer.add_image('img_l1_cam_warp', img_l1_cam_warp.squeeze(), epoch)
+      writer.add_image('cam_occ_f', cam_occ_f.squeeze(1), epoch)
 
 
 if __name__ == '__main__':

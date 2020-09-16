@@ -83,11 +83,11 @@ class FlowDispDecoder(nn.Module):
     super(FlowDispDecoder, self).__init__()
 
     self.convs = nn.Sequential(
-      conv(ch_in, 128),
-      conv(128, 128),
-      conv(128, 96),
-      conv(96, 64),
-      conv(64, 32))
+      conv(ch_in, 128, use_bn=use_bn),
+      conv(128, 128, use_bn=use_bn),
+      conv(128, 96, use_bn=use_bn),
+      conv(96, 64, use_bn=use_bn),
+      conv(64, 32, use_bn=use_bn))
 
     self.conv_sf = conv(32, 3, use_relu=False, use_bn=False)
     self.conv_d1 = conv(32, 1, use_relu=False, use_bn=False)
@@ -105,20 +105,20 @@ class FlowDispSplitDecoder(nn.Module):
     super(FlowDispSplitDecoder, self).__init__()
 
     self.disp_convs = nn.Sequential(
-      conv(ch_in, 128),
-      conv(128, 128),
-      conv(128, 96),
-      conv(96, 64),
-      conv(64, 32),
-      conv(32, 16))
+      conv(ch_in, 128, use_bn=use_bn),
+      conv(128, 128, use_bn=use_bn),
+      conv(128, 96, use_bn=use_bn),
+      conv(96, 64, use_bn=use_bn),
+      conv(64, 32, use_bn=use_bn),
+      conv(32, 16, use_bn=use_bn))
 
     self.sf_convs = nn.Sequential(
-      conv(ch_in, 128),
-      conv(128, 128),
-      conv(128, 96),
-      conv(96, 64),
-      conv(64, 32),
-      conv(32, 16))
+      conv(ch_in, 128, use_bn=use_bn),
+      conv(128, 128, use_bn=use_bn),
+      conv(128, 96, use_bn=use_bn),
+      conv(96, 64, use_bn=use_bn),
+      conv(64, 32, use_bn=use_bn),
+      conv(32, 16, use_bn=use_bn))
 
     self.conv_sf = conv(32, 3, use_relu=False, use_bn=False)
     self.conv_d1 = conv(32, 1, use_relu=False, use_bn=False)
@@ -153,6 +153,6 @@ class ContextNetwork(nn.Module):
   def forward(self, x):
     x_out = self.convs(x)
     sf = self.conv_sf(x_out)
-    disp1 = self.conv_d1(x_out)  # * 0.3
+    disp1 = self.conv_d1(x_out) * 0.3
 
     return sf, disp1

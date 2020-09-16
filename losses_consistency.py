@@ -10,10 +10,10 @@ from utils.sceneflow_util import pixel2pts_ms, pts2pixel_ms, reconstructImg, rec
 from utils.monodepth_eval import compute_errors
 from models.modules_sceneflow import WarpingLayer_Flow
 
-from utils.sceneflow_util import disp2depth_kitti, flow_horizontal_flip
+from utils.sceneflow_util import disp2depth_kitti, flow_horizontal_flip, intrinsic_scale
 from utils.inverse_warp import flow_warp, pose2flow, pose_vec2mat, inverse_warp
 
-import sys
+from sys import exit
 
 ###############################################
 # Basic Module
@@ -194,7 +194,7 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
     self._sf_3d_pts = 0.2
     self._sf_3d_sm = 200
 
-    self._cam_ph_w = 1.0
+    self._cam_ph_w = 0.2
     
 
   def pose_loss(self, 
@@ -205,30 +205,42 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
                 img_l1, img_l2,
                 aug_size, ii):
 
-    _, _, _, w = disp_l1.size()
+    _, _, h_dp, w_dp = disp_l1.size()
+    disp_l1 = disp_l1 * w_dp
+    disp_l2 = disp_l2 * w_dp
 
-    disp_l1 = disp_l1 * w
-    disp_l2 = disp_l2 * w
-    
-    depth_l1 = _disp2depth_kitti_K(disp_l1, k_l1[:, 0, 0])
-    depth_l2 = _disp2depth_kitti_K(disp_l2, k_l2[:, 0, 0])
+    # scale
+    local_scale = torch.zeros_like(aug_size)
+    local_scale[:, 0] = h_dp
+    local_scale[:, 1] = w_dp
 
-    flow_f = pose2flow(depth_l1.squeeze(dim=0), pose_f, k_l1, torch.inverse(k_l1))
-    flow_b = pose2flow(depth_l2.squeeze(dim=0), pose_b, k_l2, torch.inverse(k_l2))
-    occ_map_b = _adaptive_disocc_detection(flow_f).detach() * disp_occ_l2
-    occ_map_f = _adaptive_disocc_detection(flow_b).detach() * disp_occ_l1
+    rel_scale = local_scale / aug_size
+    k_scale_l1 = intrinsic_scale(k_l1, rel_scale[:, 0], rel_scale[:, 1])
+    k_scale_l2 = intrinsic_scale(k_l2, rel_scale[:, 0], rel_scale[:, 1])
 
-    img_l2_warp = flow_warp(img_l2, flow_f)
-    img_l1_warp = flow_warp(img_l1, flow_b)
+    depth_l1 = _disp2depth_kitti_K(disp_l1, k_scale_l1[:, 0, 0])
+    depth_l2 = _disp2depth_kitti_K(disp_l2, k_scale_l2[:, 0, 0])
 
-    flow_f_diff = _reconstruction_error(img_l1, img_l2_warp, self._ssim_w)
-    flow_b_diff = _reconstruction_error(img_l2, img_l1_warp, self._ssim_w)
+    # perform inverse warp
+    img_l1_warp = inverse_warp(img_l1, depth_l2.squeeze(1), pose_b, k_scale_l2, torch.inverse(k_scale_l2))
+    img_l2_warp = inverse_warp(img_l2, depth_l1.squeeze(1), pose_f, k_scale_l1, torch.inverse(k_scale_l1))
+
+    flow_b_diff = _reconstruction_error(img_l1, img_l2_warp, self._ssim_w)
+    flow_f_diff = _reconstruction_error(img_l2, img_l1_warp, self._ssim_w)
+
+    flow_f = pose2flow(depth_l1.squeeze(dim=1), pose_f, k_l1, torch.inverse(k_l1))
+    flow_b = pose2flow(depth_l2.squeeze(dim=1), pose_b, k_l2, torch.inverse(k_l2))
+    occ_map_f = _adaptive_disocc_detection(flow_b).detach() * disp_occ_l2
+    occ_map_b = _adaptive_disocc_detection(flow_f).detach() * disp_occ_l1
 
     flow_f_loss = flow_f_diff[occ_map_f].mean()
     flow_b_loss = flow_b_diff[occ_map_b].mean()
 
     flow_f_diff[~occ_map_f].detach_()
     flow_b_diff[~occ_map_b].detach_()
+
+    # flow_f_loss = flow_f_diff.mean()
+    # flow_b_loss = flow_b_diff.mean()
 
     loss_ph = (flow_f_loss + flow_b_loss) * self._cam_ph_w
 
@@ -382,7 +394,6 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
                                                                          k_l1_aug, k_l2_aug,
                                                                          img_l1_aug, img_l2_aug,
                                                                          aug_size, ii)
-
       loss_sf_sum = loss_sf_sum + loss_sceneflow * self._weights[ii]
       loss_sf_2d = loss_sf_2d + loss_im
       loss_sf_3d = loss_sf_3d + loss_pts
@@ -409,7 +420,9 @@ class Loss_SceneFlow_SelfSup_Pose(nn.Module):
     d_weight = max_val / d_loss
     p_weight = max_val / p_loss
 
-    total_loss = (loss_sf_sum * f_weight) + (loss_dp_sum * d_weight) + (loss_po_sum * p_weight)
+    total_loss = (loss_sf_sum * f_weight) + (loss_dp_sum * d_weight) 
+    if self._cam_ph_w > 0:
+      total_loss = total_loss + (loss_po_sum * p_weight)
 
     loss_dict = {}
     loss_dict["dp"] = loss_dp_sum
@@ -438,8 +451,10 @@ class Loss_SceneFlow_SelfSup_PoseMask(nn.Module):
         self._cam_ph_w = 1.0
         self._mask_w = 1.0
     
-    def mask_loss(self):
-      return 0
+    def mask_loss(self, args, mask):
+      ones = torch.ones_like(mask)
+      loss = torch.nn.functional.binary_cross_entropy(mask, ones)
+      return loss
       
     def camflow_loss(self, 
                      pose_f, pose_b, 

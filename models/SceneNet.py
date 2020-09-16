@@ -15,16 +15,16 @@ class SceneNet(nn.Module):
     
     self.search_range = 4
     self.output_level = 4
-    
+
     # encoder
     if args.encoder_name == 'pwc':
       self.num_levels = 7
       self.encoder_chs = [3, 32, 64, 96, 128, 192, 256]
-      self.encoder = PWCEncoder(self.encoder_chs)
+      self.encoder = PWCEncoder(self.encoder_chs, use_bn=args.use_bn)
     elif args.encoder_name == 'resnet':
       self.num_levels = 5
       self.encoder_chs = [32, 32, 64, 128, 256]
-      self.encoder = ResNetEncoder(3, self.encoder_chs)
+      self.encoder = ResNetEncoder(3, self.encoder_chs, use_bn=args.use_bn)
     else:
       raise NotImplementedError
 
@@ -49,14 +49,14 @@ class SceneNet(nn.Module):
         pose_in_ch = self.dim_corr + ch + ch + 6
         self.upconv_layers.append(upconv(32, 32, 3, 2))
 
-      sf_decoder = FlowDispDecoder(sf_in_ch)
-      pose_decoder = PoseDecoder(pose_in_ch)
+      sf_decoder = FlowDispDecoder(sf_in_ch, use_bn=args.use_bn)
+      pose_decoder = PoseDecoder(pose_in_ch, use_bn=args.use_bn)
 
       self.sf_disp_decoders.append(sf_decoder)
       self.pose_decoders.append(pose_decoder)
 
     self.corr_params = {"pad_size": self.search_range, "kernel_size": 1, "max_disp": self.search_range, "stride1": 1, "stride2": 1, "corr_multiply": 1}
-    self.context_networks = ContextNetwork(32 + 3 + 1)
+    self.context_networks = ContextNetwork(32 + 3 + 1, use_bn=args.use_bn)
     self.leakyRELU = nn.LeakyReLU(0.1, inplace=True)
 
     self.init_weights()
@@ -74,10 +74,10 @@ class SceneNet(nn.Module):
     output_dict = {}
 
     # on the bottom level are original images
-    l1_pyramid = self.encoder(img_l1) + [img_l1]
-    l2_pyramid = self.encoder(img_l2) + [img_l2]
-    r1_pyramid = self.encoder(img_r1) + [img_r1]
-    r2_pyramid = self.encoder(img_r2) + [img_r2]
+    l1_pyramid = self.encoder(img_l1)
+    l2_pyramid = self.encoder(img_l2)
+    r1_pyramid = self.encoder(img_r1)
+    r2_pyramid = self.encoder(img_r2)
 
     # outputs
     sceneflows_f = []
@@ -134,8 +134,8 @@ class SceneNet(nn.Module):
 
       # upsampling or post-processing
       if l != self.output_level:
-        disp_l1 = torch.sigmoid(disp_l1)  # * 0.3
-        disp_l2 = torch.sigmoid(disp_l2)  # * 0.3
+        disp_l1 = torch.sigmoid(disp_l1) * 0.3
+        disp_l2 = torch.sigmoid(disp_l2) * 0.3
         sceneflows_f.append(flow_f)
         sceneflows_b.append(flow_b)                
         poses_f.append(pose_f)
